@@ -1,0 +1,9 @@
+packages:
+  - .
+
+allowBuilds:
+  esbuild: true
+
+engineStrict: true
+nodeLinker: hoisted
+savePrefix: ""
