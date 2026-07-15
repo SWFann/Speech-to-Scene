@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "0.1",
+  "project": {
+    "id": "project-22222222-2222-2222-2222-222222222222",
+    "title": "Planned Project",
+    "createdAt": "2026-07-13T10:00:00.000Z",
+    "updatedAt": "2026-07-13T10:00:00.000Z",
+    "language": "zh-CN",
+    "aspectRatio": "16:9",
+    "style": "knowledge",
+    "assetUsePolicy": {
+      "intendedUse": "personal",
+      "willModify": false
+    }
+  },
+  "source": {
+    "path": "source/script.md",
+    "originalFileName": "script.md",
+    "sha256": "11162922fbe8c71880bb4146beab3ac83f042de0110b79118437500911da07bb",
+    "encoding": "utf-8",
+    "sizeBytes": 184,
+    "textLengthUtf16": 76,
+    "offsetUnit": "utf16_code_unit",
+    "blocks": [
+      {
+        "id": "block-00000001",
+        "range": { "start": 0, "end": 10 },
+        "type": "heading",
+        "text": "# 深度学习简介\n\n",
+        "level": 1,
+        "payload": { "text": "深度学习简介" }
+      },
+      {
+        "id": "block-00000002",
+        "range": { "start": 10, "end": 26 },
+        "type": "paragraph",
+        "text": "深度学习是机器学习的一个分支。\n",
+        "level": 0,
+        "payload": { "text": "深度学习是机器学习的一个分支。" }
+      },
+      {
+        "id": "block-00000003",
+        "range": { "start": 26, "end": 43 },
+        "type": "heading",
+        "text": "\n## 核心概念\n\n**神经元**",
+        "level": 2,
+        "payload": { "text": "核心概念" }
+      }
+    ]
+  },
+  "generation": {
+    "id": "gen-00000001",
+    "createdAt": "2026-07-13T10:00:00.000Z",
+    "style": "knowledge",
+    "scenes": [
+      {
+        "id": "scene-00000001",
+        "status": "draft",
+        "title": "深度学习简介",
+        "durationSec": 5,
+        "avatar": { "id": "avatar-01", "name": "默认讲解员" },
+        "sceneDescription": "介绍深度学习的基本概念",
+        "lines": [
+          {
+            "id": "line-00000001",
+            "sceneId": "scene-00000001",
+            "order": 0,
+            "text": "大家好，今天我们来了解深度学习。",
+            "syncRefs": [
+              {
+                "type": "text_overlay",
+                "text": "深度学习",
+                "style": { "position": "center", "fontSize": "large", "color": "#ffffff" }
+              }
+            ],
+            "assetRefs": [],
+            "background": null
+          }
+        ],
+        "assetCandidates": [],
+        "finalAssets": []
+      }
+    ],
+    "reviewBoard": {
+      "items": [
+        {
+          "id": "review-00000001",
+          "sceneId": "scene-00000001",
+          "status": "pending",
+          "autoChecked": true,
+          "issues": [],
+          "selectedAssets": {}
+        }
+      ]
+    }
+  },
+  "scenes": [
+    {
+      "id": "scene-00000001",
+      "status": "draft",
+      "title": "深度学习简介",
+      "durationSec": 5,
+      "avatar": { "id": "avatar-01", "name": "默认讲解员" },
+      "sceneDescription": "介绍深度学习的基本概念",
+      "lines": [
+        {
+          "id": "line-00000001",
+          "sceneId": "scene-00000001",
+          "order": 0,
+          "text": "大家好，今天我们来了解深度学习。",
+          "syncRefs": [
+            {
+              "type": "text_overlay",
+              "text": "深度学习",
+              "style": { "position": "center", "fontSize": "large", "color": "#ffffff" }
+            }
+          ],
+          "assetRefs": [],
+          "background": null
+        }
+      ],
+      "assetCandidates": [],
+      "finalAssets": []
+    }
+  ]
+}

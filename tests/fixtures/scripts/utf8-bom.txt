@@ -1,0 +1,4 @@
+﻿# UTF-8 BOM Test
+
+This file starts with a UTF-8 BOM marker.
+It should be preserved as U+FEFF in the decoded text.

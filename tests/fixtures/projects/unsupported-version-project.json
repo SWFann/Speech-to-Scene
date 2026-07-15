@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "0.2",
+  "project": {
+    "id": "project-66666666-6666-6666-6666-666666666666",
+    "title": "Unsupported Version Project",
+    "createdAt": "2026-07-13T10:00:00.000Z",
+    "updatedAt": "2026-07-13T10:00:00.000Z",
+    "language": "zh-CN",
+    "aspectRatio": "9:16",
+    "style": "knowledge",
+    "assetUsePolicy": {
+      "intendedUse": "commercial_capable",
+      "willModify": true
+    }
+  },
+  "source": {
+    "path": "source/script.md",
+    "originalFileName": "script.md",
+    "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "encoding": "utf-8",
+    "sizeBytes": 50,
+    "textLengthUtf16": 25,
+    "offsetUnit": "utf16_code_unit",
+    "blocks": []
+  },
+  "generation": null,
+  "scenes": []
+}

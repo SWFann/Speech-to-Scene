@@ -25,6 +25,7 @@
     "lint": "eslint .",
     "s2s": "tsx src/cli/index.ts",
     "test": "vitest run",
+    "test:dist-smoke": "pnpm build && vitest run tests/unit/dist-smoke-project.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json"
   },

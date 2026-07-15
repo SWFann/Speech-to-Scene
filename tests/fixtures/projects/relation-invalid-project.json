@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "0.1",
+  "project": {
+    "id": "project-33333333-3333-3333-3333-333333333333",
+    "title": "Relation Invalid Project",
+    "createdAt": "2026-07-13T10:00:00.000Z",
+    "updatedAt": "2026-07-13T10:00:00.000Z",
+    "language": "zh-CN",
+    "aspectRatio": "9:16",
+    "style": "knowledge",
+    "assetUsePolicy": {
+      "intendedUse": "commercial_capable",
+      "willModify": true
+    }
+  },
+  "source": {
+    "path": "source/script.md",
+    "originalFileName": "script.md",
+    "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "encoding": "utf-8",
+    "sizeBytes": 100,
+    "textLengthUtf16": 50,
+    "offsetUnit": "utf16_code_unit",
+    "blocks": [
+      {
+        "id": "block-00000001",
+        "range": { "start": 0, "end": 25 },
+        "type": "heading",
+        "text": "# 深度学习简介\n",
+        "level": 1,
+        "payload": { "text": "深度学习简介" }
+      }
+    ]
+  },
+  "generation": {
+    "id": "gen-00000001",
+    "createdAt": "2026-07-13T10:00:00.000Z",
+    "style": "knowledge",
+    "scenes": [
+      {
+        "id": "scene-00000001",
+        "status": "draft",
+        "title": "深度学习简介",
+        "durationSec": 5,
+        "avatar": { "id": "avatar-01", "name": "默认讲解员" },
+        "sceneDescription": "介绍深度学习的基本概念",
+        "lines": [
+          {
+            "id": "line-00000001",
+            "sceneId": "scene-00000001",
+            "order": 0,
+            "text": "大家好，今天我们来了解深度学习。",
+            "syncRefs": [
+              {
+                "type": "text_overlay",
+                "text": "深度学习",
+                "style": { "position": "center", "fontSize": "large", "color": "#ffffff" }
+              }
+            ],
+            "assetRefs": [],
+            "background": null
+          }
+        ],
+        "sourceAnchor": {
+          "strategy": "source-blocks-v1",
+          "sourceBlockIds": ["block-00000002"],
+          "startQuote": "深度学习",
+          "endQuote": "。"
+        },
+        "sourceRange": { "start": 2, "end": 24 },
+        "assetCandidates": [],
+        "finalAssets": []
+      }
+    ],
+    "reviewBoard": {
+      "items": [
+        {
+          "id": "review-00000001",
+          "sceneId": "scene-00000001",
+          "status": "pending",
+          "autoChecked": true,
+          "issues": [],
+          "selectedAssets": {}
+        }
+      ]
+    }
+  },
+  "scenes": [
+    {
+      "id": "scene-00000001",
+      "status": "draft",
+      "title": "深度学习简介",
+      "durationSec": 5,
+      "avatar": { "id": "avatar-01", "name": "默认讲解员" },
+      "sceneDescription": "介绍深度学习的基本概念",
+      "lines": [
+        {
+          "id": "line-00000001",
+          "sceneId": "scene-00000001",
+          "order": 0,
+          "text": "大家好，今天我们来了解深度学习。",
+          "syncRefs": [
+            {
+              "type": "text_overlay",
+              "text": "深度学习",
+              "style": { "position": "center", "fontSize": "large", "color": "#ffffff" }
+            }
+          ],
+          "assetRefs": [],
+          "background": null
+        }
+      ],
+      "sourceAnchor": {
+        "strategy": "source-blocks-v1",
+        "sourceBlockIds": ["block-00000002"],
+        "startQuote": "深度学习",
+        "endQuote": "。"
+      },
+      "sourceRange": { "start": 2, "end": 24 },
+      "assetCandidates": [],
+      "finalAssets": []
+    }
+  ]
+}

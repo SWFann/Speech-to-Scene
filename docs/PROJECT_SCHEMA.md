@@ -16,4 +16,4 @@ M1 must define and test:
 - derived project and scene status;
 - unknown-version rejection and atomic persistence.
 
-Before the first public `0.1` release, refer to `PROJECT_ANALYSIS_AND_RECOMMENDATIONS.md` for the required Provider and `AssetRights` changes to the original plan.
+Before the first public `0.1` release, refer to `docs/planning/PROJECT_ANALYSIS_AND_RECOMMENDATIONS.md` for the required Provider and `AssetRights` changes to the original plan.

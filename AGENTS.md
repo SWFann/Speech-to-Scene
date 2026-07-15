@@ -15,8 +15,8 @@ Do not implement rendering, ASR, timeline alignment, live recording, AI media ge
 
 Read before architectural changes:
 
-1. `Speech-to-Scene_Phase1_Demo_Execution_Plan.md`
-2. `PROJECT_ANALYSIS_AND_RECOMMENDATIONS.md`
+1. `docs/planning/Speech-to-Scene_Phase1_Demo_Execution_Plan.md`
+2. `docs/planning/PROJECT_ANALYSIS_AND_RECOMMENDATIONS.md`
 3. `docs/PROJECT_SCHEMA.md`
 4. `docs/VISUAL_GRAMMAR.md`
 5. `docs/ASSET_LICENSING.md`
