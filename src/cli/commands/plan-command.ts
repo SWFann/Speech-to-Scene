@@ -4,7 +4,7 @@
  * Plans an existing Speech-to-Scene project using a selected provider.
  *
  * Usage:
- *   s2s plan <project-directory> [--provider fixture|deepseek] [--force] [--max-scenes <n>] [--dry-run] [--json]
+ *   s2s plan <project-directory> [--provider fixture|deepseek|stepfun] [--force] [--max-scenes <n>] [--dry-run] [--json]
  */
 
 import { Command } from "commander";
@@ -15,6 +15,7 @@ import { AppError, InvalidArgumentError } from "../../shared/errors.js";
 import { planProject } from "../../application/plan-script.js";
 import { FixtureScriptPlanner } from "../../planner/fixture-script-planner.js";
 import { DeepSeekScriptPlanner } from "../../planner/deepseek-script-planner.js";
+import { StepFunScriptPlanner } from "../../planner/stepfun-script-planner.js";
 import { readPlannerEnv } from "../../infrastructure/env.js";
 import type { ScriptPlanner } from "../../application/ports/script-planner.js";
 
@@ -77,10 +78,27 @@ function resolveProvider(providerOption: string | undefined): {
         name: "deepseek",
       };
     }
+    case "stepfun": {
+      const env = readPlannerEnv();
+      if (!env.stepApiKey) {
+        throw new InvalidArgumentError(
+          "STEP_API_KEY is required for stepfun provider",
+          "请设置 STEP_API_KEY 环境变量",
+        );
+      }
+      return {
+        provider: new StepFunScriptPlanner({
+          apiKey: env.stepApiKey,
+          ...(env.stepModel !== undefined ? { model: env.stepModel } : {}),
+          ...(env.stepBaseUrl !== undefined ? { baseUrl: env.stepBaseUrl } : {}),
+        }),
+        name: "stepfun",
+      };
+    }
     default:
       throw new InvalidArgumentError(
-        `Unknown planner provider: ${providerName}. Supported: fixture, deepseek`,
-        `不支持的提供商：${providerName}，可选值：fixture, deepseek`,
+        `Unknown planner provider: ${providerName}. Supported: fixture, deepseek, stepfun`,
+        `不支持的提供商：${providerName}，可选值：fixture, deepseek, stepfun`,
       );
   }
 }
@@ -125,7 +143,7 @@ export function createPlanCommand(ctx: CommandContext): Command {
   command
     .description("Plan a Speech-to-Scene project (M2)")
     .argument("<project-directory>", "Path to the project directory")
-    .option("--provider <name>", "Planner provider (fixture or deepseek)")
+    .option("--provider <name>", "Planner provider (fixture, deepseek, or stepfun)")
     .option("--force", "Force replan even if project is already planned")
     .option("--max-scenes <n>", "Maximum number of scenes", "20")
     .option("--dry-run", "Validate and print plan without saving")

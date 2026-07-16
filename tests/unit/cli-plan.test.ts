@@ -304,6 +304,81 @@ describe("CLI: s2s plan", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it("prints a safe error when stepfun provider is missing STEP_API_KEY", async () => {
+    const projectRoot = await setupProject();
+    const originalStepApiKey = process.env.STEP_API_KEY;
+    const originalStepModel = process.env.STEP_MODEL;
+    const originalStepBaseUrl = process.env.STEP_BASE_URL;
+
+    delete process.env.STEP_API_KEY;
+    process.env.STEP_MODEL = "step-3.7-flash";
+    process.env.STEP_BASE_URL = "https://api.stepfun.com/v1";
+
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram();
+    try {
+      await program.parseAsync(["node", "s2s", "plan", projectRoot, "--provider", "stepfun"]);
+    } catch {
+      // parseAsync may throw on error paths
+    }
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    const errorOutput = consoleErrorSpy.mock.calls.map((c) => c[0] as unknown as string).join("");
+    expect(errorOutput).toContain("STEP_API_KEY");
+    expect(errorOutput).not.toContain("Authorization");
+
+    if (originalStepApiKey === undefined) {
+      delete process.env.STEP_API_KEY;
+    } else {
+      process.env.STEP_API_KEY = originalStepApiKey;
+    }
+    if (originalStepModel === undefined) {
+      delete process.env.STEP_MODEL;
+    } else {
+      process.env.STEP_MODEL = originalStepModel;
+    }
+    if (originalStepBaseUrl === undefined) {
+      delete process.env.STEP_BASE_URL;
+    } else {
+      process.env.STEP_BASE_URL = originalStepBaseUrl;
+    }
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("reads stepfun provider from S2S_PLANNER_PROVIDER before requiring STEP_API_KEY", async () => {
+    const projectRoot = await setupProject();
+    const originalProvider = process.env.S2S_PLANNER_PROVIDER;
+    const originalStepApiKey = process.env.STEP_API_KEY;
+
+    process.env.S2S_PLANNER_PROVIDER = "stepfun";
+    delete process.env.STEP_API_KEY;
+
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram();
+    try {
+      await program.parseAsync(["node", "s2s", "plan", projectRoot]);
+    } catch {
+      // parseAsync may throw on error paths
+    }
+
+    const errorOutput = consoleErrorSpy.mock.calls.map((c) => c[0] as unknown as string).join("");
+    expect(errorOutput).toContain("STEP_API_KEY");
+
+    if (originalProvider === undefined) {
+      delete process.env.S2S_PLANNER_PROVIDER;
+    } else {
+      process.env.S2S_PLANNER_PROVIDER = originalProvider;
+    }
+    if (originalStepApiKey === undefined) {
+      delete process.env.STEP_API_KEY;
+    } else {
+      process.env.STEP_API_KEY = originalStepApiKey;
+    }
+    consoleErrorSpy.mockRestore();
+  });
+
   it("does not save on --dry-run", async () => {
     const projectRoot = await setupProject();
 

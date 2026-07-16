@@ -19,3 +19,15 @@ Copyright permission does not automatically resolve trademarks, privacy, publici
 Every selected remote asset must retain its creator, original source page, provider, license or rights statement, attribution requirement, provider terms URL, retrieval time, and a minimal rights snapshot. Users must be able to return to the original page before publishing.
 
 The source and license catalogs live under `catalog/`. Entries are added in M1 and must cite official documentation with a last-verification date.
+
+## Phase 1 workflow boundary
+
+Phase 1 does not automatically download third-party media. The tool records remote candidates and rights evidence, then asks the user to review the original source page manually. Any production-ready media file is attached through the local Review Board upload flow, stored under `assets/<scene-id>/`, and validated as a local project asset.
+
+Before publishing, the user must still verify:
+
+- the provider's current license terms;
+- creator attribution requirements;
+- whether commercial use and derivatives are allowed;
+- trademarks, privacy, publicity/personality rights, and visible third-party content;
+- whether the selected local file matches the recorded source candidate.

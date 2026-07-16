@@ -5,6 +5,9 @@
  * Never hard-code API keys, base URLs, or model names in Domain or Application.
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -17,6 +20,9 @@ export interface PlannerEnvConfig {
   readonly deepseekApiKey?: string;
   readonly deepseekBaseUrl?: string;
   readonly deepseekModel?: string;
+  readonly stepApiKey?: string;
+  readonly stepBaseUrl?: string;
+  readonly stepModel?: string;
 }
 
 /**
@@ -40,10 +46,61 @@ export interface EnvConfig {
 // Helpers
 // ---------------------------------------------------------------------------
 
+let localEnvLoaded = false;
+
+function parseEnvValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function loadLocalEnvFile(): void {
+  if (localEnvLoaded) {
+    return;
+  }
+  localEnvLoaded = true;
+
+  // Vitest sets this flag; tests should control process.env explicitly and
+  // must not accidentally read a developer's local ignored .env file.
+  if (process.env.VITEST === "true") {
+    return;
+  }
+
+  const envPath = path.resolve(process.cwd(), ".env");
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  const contents = fs.readFileSync(envPath, "utf-8");
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.length === 0 || line.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const value = parseEnvValue(line.slice(separatorIndex + 1));
+    if (key.length > 0 && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
 /**
  * Reads an environment variable, returning undefined if not set.
  */
 function getEnv(name: string): string | undefined {
+  loadLocalEnvFile();
   return process.env[name] ?? undefined;
 }
 
@@ -55,15 +112,21 @@ function getEnv(name: string): string | undefined {
  * Reads planner configuration from environment variables.
  *
  * Variables:
- * - `S2S_PLANNER_PROVIDER` - planner provider ("fixture" or "deepseek")
+ * - `S2S_PLANNER_PROVIDER` - planner provider ("fixture", "deepseek", or "stepfun")
  * - `DEEPSEEK_API_KEY` - DeepSeek API key (required for deepseek provider)
  * - `DEEPSEEK_BASE_URL` - DeepSeek base URL
  * - `DEEPSEEK_MODEL` - DeepSeek model name
+ * - `STEP_API_KEY` - StepFun API key (required for stepfun provider)
+ * - `STEP_BASE_URL` - StepFun OpenAI-compatible base URL
+ * - `STEP_MODEL` - StepFun model name
  */
 export function readPlannerEnv(): PlannerEnvConfig {
   const apiKey = getEnv("DEEPSEEK_API_KEY");
   const baseUrl = getEnv("DEEPSEEK_BASE_URL");
   const model = getEnv("DEEPSEEK_MODEL");
+  const stepApiKey = getEnv("STEP_API_KEY");
+  const stepBaseUrl = getEnv("STEP_BASE_URL");
+  const stepModel = getEnv("STEP_MODEL");
 
   const result: Record<string, unknown> = {
     provider: getEnv("S2S_PLANNER_PROVIDER") ?? "fixture",
@@ -76,6 +139,15 @@ export function readPlannerEnv(): PlannerEnvConfig {
   }
   if (model !== undefined) {
     result.deepseekModel = model;
+  }
+  if (stepApiKey !== undefined) {
+    result.stepApiKey = stepApiKey;
+  }
+  if (stepBaseUrl !== undefined) {
+    result.stepBaseUrl = stepBaseUrl;
+  }
+  if (stepModel !== undefined) {
+    result.stepModel = stepModel;
   }
   return result as unknown as PlannerEnvConfig;
 }

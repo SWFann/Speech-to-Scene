@@ -124,3 +124,13 @@ Since M5-03, the review server serves the built React Review Board from `web/dis
 - Absolute filesystem paths are never included in error responses.
 - Raw provider API responses are never stored or returned.
 - The `X-S2S-Session` token is never included in error messages.
+
+## API key handling
+
+Planner and asset-provider API keys are local runtime secrets.
+
+- Store real keys only in ignored `.env` files or shell environment variables.
+- `.env.example` may document variable names and default non-secret base URLs/models, but must never contain real keys.
+- Do not commit `.env`, cache directories, logs, smoke temporary projects, uploaded assets, screenshots that reveal tokens, or terminal transcripts containing secrets.
+- Error handling must not include API keys, Authorization headers, raw request bodies, full provider responses, or stack traces in user-facing output.
+- CI and deterministic smoke flows should use `fixture` providers unless a protected secret store is explicitly configured.

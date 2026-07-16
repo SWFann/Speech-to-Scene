@@ -1,7 +1,7 @@
 # AI Task and Audit Playbook
 
 > Purpose: help a fresh Codex or Claude conversation quickly understand how this project is being built, audited, and handed off.
-> Last updated: 2026-07-16 (M5-03 in progress).
+> Last updated: 2026-07-16 (M6-03 final release closure).
 
 ## 1. Project Snapshot
 
@@ -23,6 +23,12 @@ WSL workspace:
 
 ```text
 /mnt/f/工作盘/实习经历汇总/星星之火-创业/口播/Demo
+```
+
+Current Linux workspace used for faster npm/pnpm work:
+
+```text
+/home/root/SpeechToScene
 ```
 
 Preferred execution environment:
@@ -72,6 +78,9 @@ web/vite.config.ts
 src/review/static-serving.ts
 src/review/review-server.ts
 src/cli/commands/review-command.ts
+src/cli/commands/validate-command.ts
+src/cli/commands/status-command.ts
+src/planner/stepfun-script-planner.ts
 ```
 
 The persisted project schema is the single source of truth. Do not loosen the schema merely to make an API easier to implement.
@@ -768,14 +777,24 @@ M5 cadence:
 ```text
 M5-00  -> React scaffold ✓ (committed)
 M5-02  -> Review Board UI ✓ (committed)
-M5-03  -> Static serving + smoke + docs -> Codex audit (pending)
-M5-04  -> final M5 audit, then commit/push if approved
+M5-03  -> Static serving + smoke + docs ✓ (committed)
 ```
 
-Recommended audit grouping:
+M6 cadence:
 
-- M5-03 alone, because static serving touches path traversal security and SPA fallback.
-- M5-04 final gate, because it is documentation and smoke completeness.
+```text
+M6-01  -> s2s validate ✓ (committed)
+M6-02  -> enhanced s2s status ✓ (committed)
+M6-03  -> StepFun planner + final release docs + smoke closure (current)
+```
+
+M6-03 security notes:
+
+- StepFun provider uses OpenAI-compatible API with `STEP_API_KEY`, `STEP_BASE_URL`, and `STEP_MODEL`.
+- The default StepFun model is `step-3.7-flash`.
+- Real API keys may exist only in ignored local `.env` files or shell environment variables.
+- Do not paste or commit real API keys in reports, docs, fixtures, snapshots, logs, or terminal output.
+- CI and deterministic smoke should use `fixture`, not live StepFun.
 
 ## 15. M4-04B Known Requirements
 

@@ -75,4 +75,30 @@ pnpm test
 pnpm build
 ```
 
-Environment variables should be configured starting from `.env.example`. Never commit API keys to Git.
+Environment variables should be configured starting from `.env.example`. The CLI loads a local `.env` file from the current working directory outside Vitest tests. Never commit API keys to Git.
+
+## Planner Environment Variables
+
+`s2s plan` supports three planner providers:
+
+| Provider | Network | Required variables                   | Optional variables            |
+| -------- | ------- | ------------------------------------ | ----------------------------- |
+| fixture  | No      | none                                 | none                          |
+| deepseek | Yes     | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL` | `DEEPSEEK_BASE_URL`           |
+| stepfun  | Yes     | `STEP_API_KEY`                       | `STEP_BASE_URL`, `STEP_MODEL` |
+
+StepFun defaults:
+
+```bash
+S2S_PLANNER_PROVIDER=stepfun
+STEP_API_KEY=<redacted>
+STEP_BASE_URL=https://api.stepfun.com/v1
+STEP_MODEL=step-3.7-flash
+```
+
+Rules:
+
+- Keep real keys only in local ignored `.env` files or shell environment variables.
+- `.env` and `.env.*` are ignored by Git; `.env.example` must contain placeholders only.
+- Do not paste API keys into terminal transcripts, issue reports, screenshots, test fixtures, or documentation.
+- Use `fixture` for CI and deterministic local smoke flows.
