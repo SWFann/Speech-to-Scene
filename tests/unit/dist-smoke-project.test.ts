@@ -530,3 +530,101 @@ describe("dist smoke test — Scene Update + Queries API", () => {
     }
   }, 30000);
 });
+
+// ---------------------------------------------------------------------------
+// Scene Search lifecycle smoke test (M4-05)
+// ---------------------------------------------------------------------------
+
+describe("dist smoke test — Scene Search API (M4-05)", () => {
+  it("POST search, verify persistence via GET, SIGINT shutdown", async () => {
+    // Ensure dist is built fresh
+    try {
+      execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() });
+    } catch {
+      throw new Error("pnpm build failed — cannot run dist smoke without fresh build");
+    }
+
+    // Create temp project
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-smoke-search-"));
+    tempDirs.push(dir);
+    await fs.writeFile(
+      path.join(dir, PROJECT_FILE_NAME),
+      JSON.stringify(makeValidProject(), null, 2) + "\n",
+      "utf-8",
+    );
+
+    const TOKEN = "smoke-search-token";
+    const server = await spawnDistServer(dir, TOKEN);
+
+    try {
+      const host = `127.0.0.1:${server.port}`;
+
+      // 1. POST /api/scenes/scene-001/search — search with fixture provider
+      const searchRes = await httpRequestWithBody(
+        server.port,
+        "POST",
+        "/api/scenes/scene-001/search",
+        {
+          host,
+          token: TOKEN,
+          body: JSON.stringify({ provider: "fixture" }),
+        },
+      );
+      expect(searchRes.status).toBe(200);
+      expect((searchRes.body as { ok: boolean }).ok).toBe(true);
+
+      // 2. GET /api/project — verify search results persisted
+      const getAfterSearch = await httpGet(server.port, "/api/project", {
+        host,
+        token: TOKEN,
+      });
+      expect(getAfterSearch.status).toBe(200);
+      // Step-by-step casts to avoid parser issues with nested generics
+      const searchProject = (getAfterSearch.body as { project: unknown }).project;
+      const searchScenes = (searchProject as { scenes: unknown[] }).scenes;
+      const searchScene0 = searchScenes[0] as {
+        search: { candidates: unknown[]; lastSearchedAt: string | null };
+      };
+      expect(searchScene0.search.candidates.length).toBeGreaterThan(0);
+      expect(searchScene0.search.lastSearchedAt).not.toBeNull();
+
+      // 3. Verify response does not leak sensitive info
+      const bodyStr = JSON.stringify(searchRes.body);
+      expect(bodyStr).not.toContain(dir);
+      expect(bodyStr).not.toContain(TOKEN);
+
+      // 4. Verify cache was written under project directory
+      const cacheDir = path.join(dir, "cache", "search", "fixture");
+      const cacheExists = await fs
+        .access(cacheDir)
+        .then(() => true)
+        .catch(() => false);
+      expect(cacheExists).toBe(true);
+
+      // 5. SIGINT clean shutdown (POSIX only)
+      if (process.platform !== "win32") {
+        const exitCode = await new Promise<number>((resolve) => {
+          server.child.on("exit", (code) => resolve(code ?? -1));
+          server.child.kill("SIGINT");
+          setTimeout(() => {
+            server.child.kill("SIGKILL");
+            resolve(-1);
+          }, 10000);
+        });
+        expect(exitCode).toBe(0);
+      } else {
+        await server.kill();
+        expect(server.child.exitCode).not.toBeNull();
+      }
+
+      // 6. stderr has no unhandled exceptions
+      const stderr = server.stderrChunks.join("");
+      expect(stderr).not.toContain("Unhandled");
+      expect(stderr).not.toContain("TypeError");
+    } finally {
+      if (server.child.exitCode === null && server.child.pid !== null) {
+        await server.kill();
+      }
+    }
+  }, 30000);
+});

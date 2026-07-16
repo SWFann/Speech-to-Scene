@@ -11,6 +11,7 @@ import type { ProjectRepository } from "../application/ports/project-repository.
 import type { ReviewProjectView } from "../application/get-review-project.js";
 import type { UpdateSceneDeps } from "../application/update-scene.js";
 import type { UpdateSceneQueriesDeps } from "../application/update-scene-queries.js";
+import type { SearchProjectAssetsResult } from "../application/search-project-assets.js";
 import type { SpeechToSceneProject } from "../domain/project-schema.js";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,14 @@ export interface ReviewServerDependencies {
     input: unknown,
     deps: UpdateSceneQueriesDeps,
   ) => Promise<SpeechToSceneProject>;
+  /**
+   * Application use case: searchSceneAssets(input).
+   *
+   * M4-05: Bound at the composition root with provider/cache factories.
+   * The HTTP layer calls this with a validated input object and receives
+   * the search result. Provider/cache creation is handled internally.
+   */
+  readonly searchSceneAssets: (input: unknown) => Promise<SearchProjectAssetsResult>;
 }
 
 // ---------------------------------------------------------------------------

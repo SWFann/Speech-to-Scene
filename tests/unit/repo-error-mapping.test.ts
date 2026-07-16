@@ -189,6 +189,8 @@ async function startServerWithRealRepo(
     getReviewProject,
     updateScene,
     updateSceneQueries,
+    searchSceneAssets: () =>
+      Promise.reject(new Error("searchSceneAssets not configured for this test")),
   };
   const handle = await startReviewServer({ projectRoot, host: "127.0.0.1", port: 0, token }, deps);
   servers.push({ handle });
@@ -322,6 +324,8 @@ describe("Unknown repository error → HTTP mapping", () => {
       getReviewProject,
       updateScene,
       updateSceneQueries,
+      searchSceneAssets: () =>
+        Promise.reject(new Error("searchSceneAssets not configured for this test")),
     };
     const handle = await startReviewServer(
       { projectRoot: "/fake/root", host: "127.0.0.1", port: 0, token: "test-token" },

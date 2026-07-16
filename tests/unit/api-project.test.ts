@@ -234,6 +234,8 @@ async function startTestServer(
     getReviewProject,
     updateScene,
     updateSceneQueries,
+    searchSceneAssets: () =>
+      Promise.reject(new Error("searchSceneAssets not configured for this test")),
   };
 
   const handle = await startReviewServer(

@@ -16,70 +16,9 @@ import { readEnv } from "../../infrastructure/env.js";
 import { FileSearchCache } from "../../infrastructure/file-search-cache.js";
 import {
   searchProjectAssets,
-  type SearchProvider,
   type SearchProjectAssetsInput,
 } from "../../application/search-project-assets.js";
-import type { AssetProviderEnvConfig } from "../../infrastructure/env.js";
-import type { PexelsAssetProviderOptions } from "../../providers/pexels/pexels-asset-provider.js";
-
-// ---------------------------------------------------------------------------
-// Provider Factory (composition root)
-// ---------------------------------------------------------------------------
-
-/**
- * Creates an asset provider by name.
- *
- * This is the composition root function. It imports concrete providers
- * dynamically to avoid circular dependencies.
- */
-async function createSearchProvider(
-  providerName: string,
-  env: AssetProviderEnvConfig,
-  httpClient?: {
-    get: <T>(url: string, options?: { signal?: AbortSignal | undefined }) => Promise<T>;
-    post: <T>(url: string, body: unknown) => Promise<T>;
-  },
-): Promise<SearchProvider> {
-  switch (providerName) {
-    case "fixture": {
-      // Import dynamically to avoid circular dependency
-      const { FixtureAssetProvider } =
-        await import("../../providers/fixture/fixture-asset-provider.js");
-      const clock: { now: () => Date } = { now: () => new Date() };
-      const provider = new FixtureAssetProvider(clock);
-      return {
-        providerId: provider.providerId,
-        providerPolicyRevision: provider.providerSnapshot.policyRevision,
-        capabilities: provider.capabilities,
-        search: provider.search.bind(provider),
-      };
-    }
-    case "pexels": {
-      if (!env.pexelsApiKey) {
-        throw new ProjectNotPlannedError(
-          "Pexels API key is required. Set PEXELS_API_KEY environment variable.",
-        );
-      }
-      const { PexelsAssetProvider } =
-        await import("../../providers/pexels/pexels-asset-provider.js");
-      const pexelsOptions: PexelsAssetProviderOptions = {
-        apiKey: env.pexelsApiKey,
-        ...(env.pexelsBaseUrl ? { photosBaseUrl: env.pexelsBaseUrl } : {}),
-        ...(env.pexelsVideoBaseUrl ? { videosBaseUrl: env.pexelsVideoBaseUrl } : {}),
-        ...(httpClient ? { httpClient } : {}),
-      };
-      const provider = new PexelsAssetProvider(pexelsOptions);
-      return {
-        providerId: provider.providerId,
-        providerPolicyRevision: provider.providerSnapshot.policyRevision,
-        capabilities: provider.capabilities,
-        search: provider.search.bind(provider),
-      };
-    }
-    default:
-      throw new ProjectNotPlannedError(`Unknown asset provider: ${providerName}`);
-  }
-}
+import { createSearchProvider, getSearchCacheDir } from "../provider-factory.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,7 +125,7 @@ export function createSearchCommand(ctx: CommandContext): Command {
 
         // Create cache inside project directory: <projectRoot>/cache/search/<provider>
         const resolvedProjectDir = projectDirectory.replace(/\/$/, "");
-        const cacheDir = `${resolvedProjectDir}/cache/search/${options.provider}`;
+        const cacheDir = getSearchCacheDir(resolvedProjectDir, options.provider);
         const cache = new FileSearchCache({ cacheDir });
 
         // Get current time

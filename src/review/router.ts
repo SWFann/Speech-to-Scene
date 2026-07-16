@@ -7,6 +7,7 @@
  * M4-03B: GET /api/project (session token required)
  * M4-04B: PATCH /api/scenes/:sceneId (session token + Origin required)
  * M4-04B: PUT  /api/scenes/:sceneId/queries (session token + Origin required)
+ * M4-05:  POST /api/scenes/:sceneId/search (session token + Origin required)
  *
  * Response utilities (applySecurityHeaders, sendError, sendSuccess, etc.)
  * are NOT defined here — they live in security/response-headers.ts and
@@ -35,6 +36,25 @@ import { IdSchema } from "../domain/schema-primitives.js";
  */
 const PutQueriesBodySchema = z.strictObject({
   queries: z.array(z.unknown()),
+});
+
+/**
+ * Strict schema for POST /api/scenes/:sceneId/search body.
+ *
+ * Uses z.strictObject to reject any unknown top-level fields.
+ * Only `{ provider, refresh, limit }` is accepted.
+ *
+ * - provider: must be "fixture" or "pexels".
+ * - refresh: optional boolean, defaults to false.
+ * - limit: optional integer 1..50, defaults to 12.
+ *
+ * No client-controlled field can override projectRoot, sceneId, cachePath,
+ * or provider configuration — those are server-controlled only.
+ */
+const SearchBodySchema = z.strictObject({
+  provider: z.enum(["fixture", "pexels"]),
+  refresh: z.boolean().optional().default(false),
+  limit: z.number().int().min(1).max(50).optional().default(12),
 });
 
 // ---------------------------------------------------------------------------
@@ -101,7 +121,8 @@ export function createRoutes(config: {
 
   // M4-03B + M4-04B: routes that require injected dependencies
   if (config.deps) {
-    const { repository, getReviewProject, updateScene, updateSceneQueries } = config.deps;
+    const { repository, getReviewProject, updateScene, updateSceneQueries, searchSceneAssets } =
+      config.deps;
 
     // GET /api/project (requires session token)
     routes.push({
@@ -236,6 +257,68 @@ export function createRoutes(config: {
         }
       },
     });
+
+    // POST /api/scenes/:sceneId/search (M4-05)
+    //
+    // Triggers an asset search for exactly one scene using the specified provider.
+    // The search reuses the M3 searchProjectAssets use case. After the search
+    // completes, a fresh UI-safe project view is returned (same as PATCH/PUT).
+    routes.push({
+      path: "/api/scenes/:sceneId/search",
+      methods: ["POST"],
+      handler: async (req, res, params) => {
+        const sceneId = params.pathParams["sceneId"];
+
+        // Validate sceneId from path
+        const validSceneId = validateSceneId(sceneId ?? "");
+        if (!validSceneId) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+          return;
+        }
+
+        // Read and parse JSON body
+        const bodyResult = await parseJsonBody(req, res);
+        if (!bodyResult.success) {
+          sendError(
+            res,
+            bodyResult.statusCode,
+            bodyResult.code,
+            bodyResult.message,
+            bodyResult.hint ?? undefined,
+          );
+          return;
+        }
+
+        // Strict Zod validation: only { provider, refresh, limit } is accepted.
+        // Unknown top-level fields (e.g. extra, projectRoot, sceneId, cachePath,
+        // provider config) are rejected.
+        const bodyParse = SearchBodySchema.safeParse(bodyResult.data);
+        if (!bodyParse.success) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
+          return;
+        }
+
+        // Build the use case input.
+        // projectRoot and sceneId come from server config / URL path — never
+        // from the request body.
+        const useCaseInput = {
+          projectRoot: config.projectRoot,
+          sceneId: validSceneId,
+          provider: bodyParse.data.provider,
+          maxAssetsPerQuery: bodyParse.data.limit,
+          refresh: bodyParse.data.refresh,
+        };
+
+        try {
+          await searchSceneAssets(useCaseInput);
+          // Success: return fresh UI-safe view (same as PATCH/PUT)
+          const project = await getReviewProject(config.projectRoot, repository);
+          sendSuccess(res, 200, { project });
+        } catch (error) {
+          mapMutationError(error, res);
+        }
+      },
+    });
   }
 
   return routes;
@@ -284,6 +367,7 @@ function mapProjectLoadError(error: unknown, res: ServerResponse): void {
  * - SceneNotFoundError → 404 not_found
  * - ProjectConflictError → 409 conflict
  * - ProjectValidationError → 409 conflict
+ * - ProjectNotPlannedError → 409 conflict (project not planned or provider unavailable)
  * - Unknown → 500 internal_error
  *
  * Never includes: absolute paths, stack traces, raw Zod issues,
@@ -319,6 +403,13 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
     code === "source_document_error"
   ) {
     sendError(res, 409, "conflict", "Project data is invalid", undefined);
+    return;
+  }
+
+  // ProjectNotPlannedError → 409 conflict
+  // Covers: project not planned, scene not found (legacy), provider unavailable.
+  if (code === "project_not_planned") {
+    sendError(res, 409, "conflict", "Conflict with current project state", undefined);
     return;
   }
 
