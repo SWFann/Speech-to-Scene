@@ -22,7 +22,7 @@ import { sendSuccess, sendError, sendInternalError } from "./json-response.js";
 import { parseJsonBody } from "./json-body.js";
 import type { ServerResponse } from "node:http";
 import { ERROR_INVALID_REQUEST } from "./http-errors.js";
-import { IdSchema } from "../domain/schema-primitives.js";
+import { IdSchema, NonEmptyTrimmedStringSchema } from "../domain/schema-primitives.js";
 
 // ---------------------------------------------------------------------------
 // Request body schemas (M4-04BF)
@@ -55,6 +55,46 @@ const SearchBodySchema = z.strictObject({
   provider: z.enum(["fixture", "pexels"]),
   refresh: z.boolean().optional().default(false),
   limit: z.number().int().min(1).max(50).optional().default(12),
+});
+
+/**
+ * Maximum length for the skip note.
+ */
+const MAX_NOTE_LENGTH = 2000;
+
+/**
+ * Strict schema for PUT /api/scenes/:sceneId/selection body.
+ *
+ * Uses z.strictObject to reject any unknown top-level fields.
+ * Only `{ candidateId, rightsAcknowledged }` is accepted.
+ *
+ * - candidateId: must be a valid Id.
+ * - rightsAcknowledged: optional boolean, defaults to false.
+ *
+ * No client-controlled field can override projectRoot, sceneId, or candidate —
+ * those are server-controlled only.
+ */
+const SelectionBodySchema = z.strictObject({
+  candidateId: IdSchema,
+  rightsAcknowledged: z.boolean().optional().default(false),
+});
+
+/**
+ * Strict schema for PUT /api/scenes/:sceneId/skip body.
+ *
+ * Uses z.strictObject to reject any unknown top-level fields.
+ * Only `{ note }` is accepted.
+ *
+ * - note: optional non-empty trimmed string, max 2000 chars.
+ *
+ * No client-controlled field can override projectRoot or sceneId —
+ * those are server-controlled only.
+ */
+const SkipBodySchema = z.strictObject({
+  note: NonEmptyTrimmedStringSchema.refine(
+    (s) => s.length <= MAX_NOTE_LENGTH,
+    `note 最长 ${MAX_NOTE_LENGTH} 字符`,
+  ).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -121,8 +161,15 @@ export function createRoutes(config: {
 
   // M4-03B + M4-04B: routes that require injected dependencies
   if (config.deps) {
-    const { repository, getReviewProject, updateScene, updateSceneQueries, searchSceneAssets } =
-      config.deps;
+    const {
+      repository,
+      getReviewProject,
+      updateScene,
+      updateSceneQueries,
+      searchSceneAssets,
+      selectCandidate,
+      skipScene,
+    } = config.deps;
 
     // GET /api/project (requires session token)
     routes.push({
@@ -312,6 +359,132 @@ export function createRoutes(config: {
         try {
           await searchSceneAssets(useCaseInput);
           // Success: return fresh UI-safe view (same as PATCH/PUT)
+          const project = await getReviewProject(config.projectRoot, repository);
+          sendSuccess(res, 200, { project });
+        } catch (error) {
+          mapMutationError(error, res);
+        }
+      },
+    });
+
+    // PUT /api/scenes/:sceneId/selection (M4-06)
+    //
+    // Selects an asset candidate for a scene. The candidate must exist in
+    // the target scene's search results. If the candidate's rights carry
+    // warnings, rightsAcknowledged must be true.
+    //
+    // After the selection persists, a fresh UI-safe project view is returned.
+    routes.push({
+      path: "/api/scenes/:sceneId/selection",
+      methods: ["PUT"],
+      handler: async (req, res, params) => {
+        const sceneId = params.pathParams["sceneId"];
+
+        // Validate sceneId from path
+        const validSceneId = validateSceneId(sceneId ?? "");
+        if (!validSceneId) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+          return;
+        }
+
+        // Read and parse JSON body
+        const bodyResult = await parseJsonBody(req, res);
+        if (!bodyResult.success) {
+          sendError(
+            res,
+            bodyResult.statusCode,
+            bodyResult.code,
+            bodyResult.message,
+            bodyResult.hint ?? undefined,
+          );
+          return;
+        }
+
+        // Strict Zod validation: only { candidateId, rightsAcknowledged } is accepted.
+        // Unknown top-level fields (e.g. extra, projectRoot, sceneId) are rejected.
+        const bodyParse = SelectionBodySchema.safeParse(bodyResult.data);
+        if (!bodyParse.success) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
+          return;
+        }
+
+        // Build the use case input.
+        // projectRoot and sceneId come from server config / URL path — never
+        // from the request body.
+        const useCaseInput = {
+          projectRoot: config.projectRoot,
+          sceneId: validSceneId,
+          candidateId: bodyParse.data.candidateId,
+          rightsAcknowledged: bodyParse.data.rightsAcknowledged,
+        };
+
+        try {
+          await selectCandidate(useCaseInput, { repository });
+          // Success: return fresh UI-safe view
+          const project = await getReviewProject(config.projectRoot, repository);
+          sendSuccess(res, 200, { project });
+        } catch (error) {
+          mapMutationError(error, res);
+        }
+      },
+    });
+
+    // PUT /api/scenes/:sceneId/skip (M4-06)
+    //
+    // Marks a scene as skipped in the user's review decision.
+    // Search candidates are preserved as an audit chain.
+    //
+    // After the skip persists, a fresh UI-safe project view is returned.
+    routes.push({
+      path: "/api/scenes/:sceneId/skip",
+      methods: ["PUT"],
+      handler: async (req, res, params) => {
+        const sceneId = params.pathParams["sceneId"];
+
+        // Validate sceneId from path
+        const validSceneId = validateSceneId(sceneId ?? "");
+        if (!validSceneId) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+          return;
+        }
+
+        // Read and parse JSON body
+        const bodyResult = await parseJsonBody(req, res);
+        if (!bodyResult.success) {
+          sendError(
+            res,
+            bodyResult.statusCode,
+            bodyResult.code,
+            bodyResult.message,
+            bodyResult.hint ?? undefined,
+          );
+          return;
+        }
+
+        // Strict Zod validation: only { note? } is accepted.
+        // Unknown top-level fields (e.g. extra, projectRoot, sceneId) are rejected.
+        const bodyParse = SkipBodySchema.safeParse(bodyResult.data);
+        if (!bodyParse.success) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
+          return;
+        }
+
+        // Build the use case input.
+        // projectRoot and sceneId come from server config / URL path — never
+        // from the request body.
+        const useCaseInput: {
+          projectRoot: string;
+          sceneId: string;
+          note?: string;
+        } = {
+          projectRoot: config.projectRoot,
+          sceneId: validSceneId,
+          ...(bodyParse.data.note !== undefined ? { note: bodyParse.data.note } : {}),
+        };
+
+        try {
+          await skipScene(useCaseInput, { repository });
+          // Success: return fresh UI-safe view
           const project = await getReviewProject(config.projectRoot, repository);
           sendSuccess(res, 200, { project });
         } catch (error) {

@@ -628,3 +628,93 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
     }
   }, 30000);
 });
+
+// ---------------------------------------------------------------------------
+// Review Decision (skip) lifecycle smoke test (M4-06)
+// ---------------------------------------------------------------------------
+
+describe("dist smoke test — Review Decision API (M4-06)", () => {
+  it("PUT skip, verify persistence via GET, SIGINT shutdown", async () => {
+    // Ensure dist is built fresh
+    try {
+      execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() });
+    } catch {
+      throw new Error("pnpm build failed — cannot run dist smoke without fresh build");
+    }
+
+    // Create temp project
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-smoke-decision-"));
+    tempDirs.push(dir);
+    await fs.writeFile(
+      path.join(dir, PROJECT_FILE_NAME),
+      JSON.stringify(makeValidProject(), null, 2) + "\n",
+      "utf-8",
+    );
+
+    const TOKEN = "smoke-decision-token";
+    const server = await spawnDistServer(dir, TOKEN);
+
+    try {
+      const host = `127.0.0.1:${server.port}`;
+
+      // 1. PUT /api/scenes/scene-001/skip — skip the scene
+      const skipRes = await httpRequestWithBody(server.port, "PUT", "/api/scenes/scene-001/skip", {
+        host,
+        token: TOKEN,
+        body: JSON.stringify({ note: "No external asset needed" }),
+      });
+      expect(skipRes.status).toBe(200);
+      expect((skipRes.body as { ok: boolean }).ok).toBe(true);
+
+      // 2. GET /api/project — verify skip persisted
+      const getAfterSkip = await httpGet(server.port, "/api/project", {
+        host,
+        token: TOKEN,
+      });
+      expect(getAfterSkip.status).toBe(200);
+      // Step-by-step casts to avoid parser issues with nested generics
+      const skipProject = (getAfterSkip.body as { project: unknown }).project;
+      const skipScenes = (skipProject as { scenes: unknown[] }).scenes;
+      const skipScene0 = skipScenes[0] as {
+        review: {
+          kind: string;
+          decidedAt?: string;
+          note?: string;
+        };
+      };
+      expect(skipScene0.review.kind).toBe("skipped");
+      expect(skipScene0.review.decidedAt).toBeTruthy();
+      expect(skipScene0.review.note).toBe("No external asset needed");
+
+      // 3. Verify response does not leak sensitive info
+      const bodyStr = JSON.stringify(skipRes.body);
+      expect(bodyStr).not.toContain(dir);
+      expect(bodyStr).not.toContain(TOKEN);
+
+      // 4. SIGINT clean shutdown (POSIX only)
+      if (process.platform !== "win32") {
+        const exitCode = await new Promise<number>((resolve) => {
+          server.child.on("exit", (code) => resolve(code ?? -1));
+          server.child.kill("SIGINT");
+          setTimeout(() => {
+            server.child.kill("SIGKILL");
+            resolve(-1);
+          }, 10000);
+        });
+        expect(exitCode).toBe(0);
+      } else {
+        await server.kill();
+        expect(server.child.exitCode).not.toBeNull();
+      }
+
+      // 5. stderr has no unhandled exceptions
+      const stderr = server.stderrChunks.join("");
+      expect(stderr).not.toContain("Unhandled");
+      expect(stderr).not.toContain("TypeError");
+    } finally {
+      if (server.child.exitCode === null && server.child.pid !== null) {
+        await server.kill();
+      }
+    }
+  }, 30000);
+});

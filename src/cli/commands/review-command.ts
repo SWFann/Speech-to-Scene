@@ -11,6 +11,7 @@
  * M4-03B: GET /api/project (token-gated read).
  * M4-04B: PATCH /api/scenes/:sceneId, PUT /api/scenes/:sceneId/queries.
  * M4-05: POST /api/scenes/:sceneId/search (single-scene asset search).
+ * M4-06: PUT /api/scenes/:sceneId/selection, PUT /api/scenes/:sceneId/skip.
  */
 
 import { Command } from "commander";
@@ -101,6 +102,8 @@ export function createReviewCommand(ctx: CommandContext): Command {
           updateScene: ctx.updateScene,
           updateSceneQueries: ctx.updateSceneQueries,
           searchSceneAssets: searchSceneAssetsBound,
+          selectCandidate: ctx.selectCandidate,
+          skipScene: ctx.skipScene,
         };
         const handle = await startReviewServer(
           {

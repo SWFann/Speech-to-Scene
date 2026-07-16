@@ -11,6 +11,8 @@ import type { ProjectRepository } from "../application/ports/project-repository.
 import type { ReviewProjectView } from "../application/get-review-project.js";
 import type { UpdateSceneDeps } from "../application/update-scene.js";
 import type { UpdateSceneQueriesDeps } from "../application/update-scene-queries.js";
+import type { SelectCandidateDeps } from "../application/select-candidate.js";
+import type { SkipSceneDeps } from "../application/skip-scene.js";
 import type { SearchProjectAssetsResult } from "../application/search-project-assets.js";
 import type { SpeechToSceneProject } from "../domain/project-schema.js";
 
@@ -68,6 +70,15 @@ export interface ReviewServerDependencies {
    * the search result. Provider/cache creation is handled internally.
    */
   readonly searchSceneAssets: (input: unknown) => Promise<SearchProjectAssetsResult>;
+
+  /** Application use case: selectCandidate(input, deps). M4-06 */
+  readonly selectCandidate: (
+    input: unknown,
+    deps: SelectCandidateDeps,
+  ) => Promise<SpeechToSceneProject>;
+
+  /** Application use case: skipScene(input, deps). M4-06 */
+  readonly skipScene: (input: unknown, deps: SkipSceneDeps) => Promise<SpeechToSceneProject>;
 }
 
 // ---------------------------------------------------------------------------

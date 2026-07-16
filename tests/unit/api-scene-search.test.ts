@@ -358,6 +358,9 @@ async function startTestServer(
     updateScene,
     updateSceneQueries,
     searchSceneAssets: searchSceneAssetsBound,
+    selectCandidate: () =>
+      Promise.reject(new Error("selectCandidate not configured for this test")),
+    skipScene: () => Promise.reject(new Error("skipScene not configured for this test")),
   };
 
   const handle = await startReviewServer(
