@@ -45,6 +45,8 @@ export interface StepFunPlannerOptions {
 
 export const DEFAULT_STEPFUN_MODEL = "step-3.7-flash";
 export const DEFAULT_STEPFUN_BASE_URL = "https://api.stepfun.com/v1";
+export const DEFAULT_STEPFUN_MAX_TOKENS = 12_000;
+export const DEFAULT_STEPFUN_TIMEOUT_MS = 120_000;
 
 const STEPFUN_CAPABILITIES: PlannerCapabilities = {
   jsonMode: true,
@@ -52,6 +54,119 @@ const STEPFUN_CAPABILITIES: PlannerCapabilities = {
   toolCalling: false,
   usageMetrics: true,
 };
+
+// ---------------------------------------------------------------------------
+// Normalization helpers
+// ---------------------------------------------------------------------------
+
+function trimString(value: unknown): unknown {
+  return typeof value === "string" ? value.trim() : value;
+}
+
+function normalizeLanguage(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "zh" || normalized === "zh-cn" || normalized === "zh_cn") {
+    return "zh";
+  }
+  if (normalized === "en" || normalized === "en-us" || normalized === "en_us") {
+    return "en";
+  }
+  return value.trim();
+}
+
+function collectTrimmedStrings(value: readonly unknown[]): string[] {
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function normalizeStringArray(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+  return collectTrimmedStrings(value as readonly unknown[]);
+}
+
+function normalizeMediaArray(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+  const items = collectTrimmedStrings(value as readonly unknown[]);
+  return items.map((item) => {
+    const normalized = item.toLowerCase();
+    if (normalized === "image" || normalized === "picture") {
+      return "photo";
+    }
+    return normalized;
+  });
+}
+
+function normalizeStepFunPlannerOutput(parsed: unknown): unknown {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  const root = parsed as { scenes?: unknown };
+  if (!Array.isArray(root.scenes)) {
+    return parsed;
+  }
+  const scenes = root.scenes as readonly unknown[];
+
+  return {
+    ...root,
+    scenes: scenes.map((scene: unknown) => {
+      if (typeof scene !== "object" || scene === null || Array.isArray(scene)) {
+        return scene;
+      }
+      const sceneRecord = scene as Record<string, unknown>;
+      const visualPlan =
+        typeof sceneRecord.visualPlan === "object" &&
+        sceneRecord.visualPlan !== null &&
+        !Array.isArray(sceneRecord.visualPlan)
+          ? (sceneRecord.visualPlan as Record<string, unknown>)
+          : null;
+      const rawQueries = Array.isArray(sceneRecord.queries)
+        ? (sceneRecord.queries as readonly unknown[])
+        : null;
+      const queries =
+        rawQueries !== null
+          ? rawQueries.map((query: unknown) => {
+              if (typeof query !== "object" || query === null || Array.isArray(query)) {
+                return query;
+              }
+              const queryRecord = query as Record<string, unknown>;
+              return {
+                ...queryRecord,
+                language: normalizeLanguage(queryRecord.language),
+                query: trimString(queryRecord.query),
+                purpose: trimString(queryRecord.purpose),
+              };
+            })
+          : sceneRecord.queries;
+
+      return {
+        ...sceneRecord,
+        summary: trimString(sceneRecord.summary),
+        narrativeRole: trimString(sceneRecord.narrativeRole),
+        visualPlan:
+          visualPlan === null
+            ? sceneRecord.visualPlan
+            : {
+                ...visualPlan,
+                decision: trimString(visualPlan.decision),
+                rationale: trimString(visualPlan.rationale),
+                preferredMedia: normalizeMediaArray(visualPlan.preferredMedia),
+                visualKeywords: normalizeStringArray(visualPlan.visualKeywords),
+              },
+        queries,
+      };
+    }),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // StepFun planner implementation
@@ -81,7 +196,7 @@ export class StepFunScriptPlanner implements ScriptPlanner {
       new HttpClientClass({
         baseUrl: options.baseUrl ?? env.stepBaseUrl ?? DEFAULT_STEPFUN_BASE_URL,
         apiKey: options.apiKey,
-        timeoutMs: options.timeoutMs ?? 30_000,
+        timeoutMs: options.timeoutMs ?? DEFAULT_STEPFUN_TIMEOUT_MS,
       });
   }
 
@@ -114,8 +229,9 @@ export class StepFunScriptPlanner implements ScriptPlanner {
         { role: "user", content: userPrompt },
       ],
       response_format: { type: "json_object" },
+      reasoning_effort: "low",
       temperature: 0.3,
-      max_tokens: 4096,
+      max_tokens: DEFAULT_STEPFUN_MAX_TOKENS,
     });
 
     if (!response.ok) {
@@ -146,7 +262,7 @@ export class StepFunScriptPlanner implements ScriptPlanner {
 
     let validated;
     try {
-      validated = PlannerOutputSchema.parse(parsed);
+      validated = PlannerOutputSchema.parse(normalizeStepFunPlannerOutput(parsed));
     } catch (error) {
       if (error instanceof Error) {
         throw new PlannerValidationError(
@@ -214,6 +330,8 @@ RULES:
 8. Do not add facts or change the speaker's viewpoint.
 9. Generate practical search queries only when a stock asset is useful.
 10. Anchors must reference existing blocks by ID and use quotes found in those blocks.
+11. Never output empty arrays for visualPlan.preferredMedia or visualPlan.visualKeywords.
+12. For speaker_only or none scenes, use preferredMedia ["photo"] and concrete visualKeywords such as ["speaker", "talking head"].
 
 SOURCE BLOCKS:
 ${blockList}
@@ -254,6 +372,8 @@ VALIDATION RULES:
 - startQuote and endQuote must be exact substrings of the referenced blocks
 - stock_asset scenes must have at least one enabled query
 - speaker_only, title_card, structured_graphic, screen_capture, user_asset, none do NOT need external queries
+- visualPlan.preferredMedia must contain at least one item for every scene
+- visualPlan.visualKeywords must contain at least one item for every scene
 - No scene may add facts not present in the source`;
   }
 

@@ -194,6 +194,45 @@ function resolveQuoteToGlobalOffset(
 }
 
 /**
+ * Finds the unique block containing a quote. Returns null when the quote is
+ * missing or appears in multiple blocks; the resolver then preserves the
+ * stricter original error path.
+ */
+function findUniqueBlockContainingQuote(
+  quote: string,
+  blocks: readonly SourceBlock[],
+): SourceBlock | null {
+  const matches: SourceBlock[] = [];
+  for (const block of blocks) {
+    if (block.text.includes(quote)) {
+      matches.push(block);
+    }
+  }
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function blockIdsBetween(
+  startBlock: SourceBlock,
+  endBlock: SourceBlock,
+  blocks: readonly SourceBlock[],
+): string[] | null {
+  if (startBlock.order > endBlock.order) {
+    return null;
+  }
+
+  const selected = blocks
+    .filter((block) => block.order >= startBlock.order && block.order <= endBlock.order)
+    .sort((a, b) => a.order - b.order);
+
+  const expectedCount = endBlock.order - startBlock.order + 1;
+  if (selected.length !== expectedCount) {
+    return null;
+  }
+
+  return selected.map((block) => block.id);
+}
+
+/**
  * Checks for overlap with previously resolved scenes.
  */
 function checkOverlap(start: number, end: number, previousEnd: number, sceneIndex: number): void {
@@ -233,19 +272,47 @@ export function resolveAnchors(
     // Validate block IDs
     validateBlockSequence(anchor.sourceBlockIds, blockMap);
 
-    const firstBlockId = anchor.sourceBlockIds[0]!;
-    const lastBlockId = anchor.sourceBlockIds[anchor.sourceBlockIds.length - 1]!;
-    const firstBlock = blockMap.get(firstBlockId)!;
-    const lastBlock = blockMap.get(lastBlockId)!;
+    let activeBlockIds = Array.from(anchor.sourceBlockIds);
+    let firstBlockId = activeBlockIds[0]!;
+    let lastBlockId = activeBlockIds[activeBlockIds.length - 1]!;
+    let firstBlock = blockMap.get(firstBlockId)!;
+    let lastBlock = blockMap.get(lastBlockId)!;
 
     // Resolve start quote in first block
-    const startGlobal = resolveQuoteToGlobalOffset(anchor.startQuote, firstBlock);
+    let startGlobal = resolveQuoteToGlobalOffset(anchor.startQuote, firstBlock);
+    let endGlobal = resolveQuoteToGlobalOffset(anchor.endQuote, lastBlock);
+
+    if (startGlobal === null || endGlobal === null) {
+      const repairedFirstBlock = findUniqueBlockContainingQuote(
+        anchor.startQuote,
+        sourceBlocks.blocks,
+      );
+      const repairedLastBlock = findUniqueBlockContainingQuote(
+        anchor.endQuote,
+        sourceBlocks.blocks,
+      );
+      const repairedIds =
+        repairedFirstBlock !== null && repairedLastBlock !== null
+          ? blockIdsBetween(repairedFirstBlock, repairedLastBlock, sourceBlocks.blocks)
+          : null;
+
+      if (repairedIds !== null) {
+        validateBlockSequence(repairedIds, blockMap);
+        activeBlockIds = repairedIds;
+        firstBlockId = activeBlockIds[0]!;
+        lastBlockId = activeBlockIds[activeBlockIds.length - 1]!;
+        firstBlock = blockMap.get(firstBlockId)!;
+        lastBlock = blockMap.get(lastBlockId)!;
+        startGlobal = resolveQuoteToGlobalOffset(anchor.startQuote, firstBlock);
+        endGlobal = resolveQuoteToGlobalOffset(anchor.endQuote, lastBlock);
+      }
+    }
+
     if (startGlobal === null) {
       throw new QuoteNotFoundError(anchor.startQuote, firstBlockId);
     }
 
     // Resolve end quote in last block
-    const endGlobal = resolveQuoteToGlobalOffset(anchor.endQuote, lastBlock);
     if (endGlobal === null) {
       throw new QuoteNotFoundError(anchor.endQuote, lastBlockId);
     }
@@ -275,7 +342,13 @@ export function resolveAnchors(
     previousEnd = rangeEnd;
 
     resolved.push({
-      scene,
+      scene: {
+        ...scene,
+        sourceAnchor: {
+          ...scene.sourceAnchor,
+          sourceBlockIds: activeBlockIds,
+        },
+      },
       sourceRange: { start: rangeStart, end: rangeEnd },
       text,
     });

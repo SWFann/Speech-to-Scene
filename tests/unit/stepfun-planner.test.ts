@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_STEPFUN_MAX_TOKENS,
   DEFAULT_STEPFUN_MODEL,
   StepFunScriptPlanner,
   type StepFunPlannerOptions,
@@ -120,7 +121,8 @@ describe("StepFunScriptPlanner", () => {
     expect(client.recordedRequests[0]!.body).toMatchObject({
       model: DEFAULT_STEPFUN_MODEL,
       temperature: 0.3,
-      max_tokens: 4096,
+      max_tokens: DEFAULT_STEPFUN_MAX_TOKENS,
+      reasoning_effort: "low",
       response_format: { type: "json_object" },
     });
   });
@@ -155,6 +157,72 @@ describe("StepFunScriptPlanner", () => {
 
     expect(result.model).toBe("step-custom");
     expect(client.recordedRequests[0]!.body).toMatchObject({ model: "step-custom" });
+  });
+
+  it("instructs the model not to output empty visual arrays", async () => {
+    const client = new FakeHttpClient();
+    client.setResponse({
+      ok: true,
+      status: 200,
+      data: makeValidResponse(DEFAULT_SCENES),
+      headers: new Headers(),
+    });
+
+    const planner = new StepFunScriptPlanner(makeOptions(client));
+    await planner.plan(makeInput());
+
+    const body = client.recordedRequests[0]!.body as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const systemPrompt = body.messages.find((message) => message.role === "system")?.content;
+    expect(systemPrompt).toContain("Never output empty arrays");
+    expect(systemPrompt).toContain("visualPlan.preferredMedia must contain at least one item");
+    expect(systemPrompt).toContain("visualPlan.visualKeywords must contain at least one item");
+  });
+
+  it("normalizes common StepFun output variants before schema validation", async () => {
+    const client = new FakeHttpClient();
+    client.setResponse({
+      ok: true,
+      status: 200,
+      data: makeValidResponse([
+        {
+          sourceAnchor: {
+            strategy: "source-blocks-v1",
+            sourceBlockIds: ["block-0001"],
+            startQuote: "Hello",
+            endQuote: "world",
+          },
+          summary: " Test scene ",
+          narrativeRole: "explanation",
+          visualPlan: {
+            decision: "stock_asset",
+            rationale: " Test ",
+            preferredMedia: ["image"],
+            visualKeywords: [" paper notes "],
+          },
+          queries: [{ language: "zh-CN", query: " 主动回忆 ", purpose: " visual ", enabled: true }],
+        },
+      ]),
+      headers: new Headers(),
+    });
+
+    const planner = new StepFunScriptPlanner(makeOptions(client));
+    const result = await planner.plan(makeInput());
+    const output = result.output as {
+      scenes: Array<{
+        summary: string;
+        visualPlan: { preferredMedia: string[]; visualKeywords: string[] };
+        queries: Array<{ language: string; query: string }>;
+      }>;
+    };
+    const scene = output.scenes[0]!;
+
+    expect(scene.summary).toBe("Test scene");
+    expect(scene.visualPlan.preferredMedia).toEqual(["photo"]);
+    expect(scene.visualPlan.visualKeywords).toEqual(["paper notes"]);
+    expect(scene.queries[0]!.language).toBe("zh");
+    expect(scene.queries[0]!.query).toBe("主动回忆");
   });
 
   it("throws PlannerOutputError when response has no choices", async () => {

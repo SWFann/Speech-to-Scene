@@ -113,6 +113,34 @@ describe("resolveAnchors", () => {
     expect(result.scenes[0]!.sourceRange).toEqual({ start: 0, end: 48 });
   });
 
+  it("repairs wrong block IDs when exact quotes uniquely identify the correct blocks", () => {
+    const output = makePlannerOutput([
+      {
+        sourceAnchor: {
+          strategy: "source-blocks-v1",
+          sourceBlockIds: ["block-0001"],
+          startQuote: "Second",
+          endQuote: "here",
+        },
+        summary: "Repaired scene",
+        narrativeRole: "explanation",
+        visualPlan: {
+          decision: "speaker_only",
+          rationale: "Test",
+          preferredMedia: ["photo"],
+          visualKeywords: ["test"],
+        },
+        queries: [],
+      },
+    ]);
+
+    const result = resolveAnchors(output, sourceBlocks);
+
+    expect(result.scenes[0]!.text).toBe("Second paragraph here");
+    expect(result.scenes[0]!.sourceRange).toEqual({ start: 27, end: 48 });
+    expect(result.scenes[0]!.scene.sourceAnchor.sourceBlockIds).toEqual(["block-0002"]);
+  });
+
   it("throws on unknown block ID", () => {
     const output = makePlannerOutput([
       {
