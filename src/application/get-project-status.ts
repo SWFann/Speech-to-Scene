@@ -10,11 +10,33 @@
  */
 
 import type { ProjectRepository } from "../application/ports/project-repository.js";
+import type { SpeechToSceneProject } from "../domain/project-schema.js";
 import { getProjectStatus } from "../domain/project-status.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/**
+ * Review progress summary for a project.
+ *
+ * Counts are derived from scene review decisions:
+ * - `pending`: review.kind === "pending"
+ * - `skipped`: review.kind === "skipped"
+ * - `candidateSelected`: review.kind === "candidate_selected" (with or without localAsset)
+ * - `localAssetAttached`: review.kind === "local_asset_attached"
+ * - `withLocalAsset`: localAssetAttached + candidate_selected with localAsset present
+ * - `completionRatio`: (totalScenes - pending) / totalScenes, or 0 when totalScenes is 0
+ */
+export interface ReviewSummary {
+  totalScenes: number;
+  pending: number;
+  skipped: number;
+  candidateSelected: number;
+  localAssetAttached: number;
+  withLocalAsset: number;
+  completionRatio: number;
+}
 
 /**
  * Human-readable view of a project's status.
@@ -30,7 +52,7 @@ export interface ProjectStatusView {
     aspectRatio: string;
     style: string;
   };
-  status: "created" | "planned" | "producing";
+  status: "created" | "planned";
   source: {
     path: string;
     textLengthUtf16: number;
@@ -39,7 +61,59 @@ export interface ProjectStatusView {
     total: number;
     byStatus: Record<string, number>;
   };
+  review: ReviewSummary;
   updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes the review progress summary from a project's scenes.
+ *
+ * This is a pure function — no side effects, no I/O.
+ */
+function computeReviewSummary(scenes: SpeechToSceneProject["scenes"]): ReviewSummary {
+  const totalScenes = scenes.length;
+  let pending = 0;
+  let skipped = 0;
+  let candidateSelected = 0;
+  let localAssetAttached = 0;
+  let withLocalAsset = 0;
+
+  for (const scene of scenes) {
+    switch (scene.review.kind) {
+      case "pending":
+        pending++;
+        break;
+      case "skipped":
+        skipped++;
+        break;
+      case "candidate_selected":
+        candidateSelected++;
+        if (scene.review.localAsset !== undefined) {
+          withLocalAsset++;
+        }
+        break;
+      case "local_asset_attached":
+        localAssetAttached++;
+        withLocalAsset++;
+        break;
+    }
+  }
+
+  const completionRatio = totalScenes === 0 ? 0 : (totalScenes - pending) / totalScenes;
+
+  return {
+    totalScenes,
+    pending,
+    skipped,
+    candidateSelected,
+    localAssetAttached,
+    withLocalAsset,
+    completionRatio,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +161,7 @@ export async function getProjectStatusUseCase(
       total: status.sceneCount,
       byStatus,
     },
+    review: computeReviewSummary(project.scenes),
     updatedAt: project.project.updatedAt,
   };
 }

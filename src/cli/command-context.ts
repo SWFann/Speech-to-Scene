@@ -23,6 +23,7 @@ import { updateSceneQueries } from "../application/update-scene-queries.js";
 import { selectCandidate } from "../application/select-candidate.js";
 import { skipScene } from "../application/skip-scene.js";
 import { attachLocalAsset } from "../application/attach-local-asset.js";
+import { validateProject } from "../application/validate-project.js";
 import { FsLocalAssetWriter } from "../infrastructure/local-asset-writer.js";
 import { formatError, formatUnexpectedError } from "./error-reporter.js";
 import type { Clock } from "../application/ports/clock.js";
@@ -48,6 +49,7 @@ export interface CommandContext {
   selectCandidate: typeof selectCandidate;
   skipScene: typeof skipScene;
   attachLocalAsset: typeof attachLocalAsset;
+  validateProject: typeof validateProject;
   assetWriter: FsLocalAssetWriter;
   formatError: (error: AppError) => string;
   formatUnexpectedError: (error: unknown) => string;
@@ -75,6 +77,7 @@ export function createCommandContext(): CommandContext {
     selectCandidate,
     skipScene,
     attachLocalAsset,
+    validateProject,
     assetWriter: new FsLocalAssetWriter(),
     formatError,
     formatUnexpectedError,

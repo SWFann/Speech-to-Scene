@@ -16,6 +16,7 @@ import { createStatusCommand } from "./commands/status-command.js";
 import { createPlanCommand } from "./commands/plan-command.js";
 import { createSearchCommand } from "./commands/search-command.js";
 import { createReviewCommand } from "./commands/review-command.js";
+import { createValidateCommand } from "./commands/validate-command.js";
 
 // ---------------------------------------------------------------------------
 // Program setup
@@ -32,6 +33,7 @@ export const createProgram = (ctx = createCommandContext()): Command =>
     .addCommand(createPlanCommand(ctx))
     .addCommand(createSearchCommand(ctx))
     .addCommand(createReviewCommand(ctx))
+    .addCommand(createValidateCommand(ctx))
     .addCommand(createStatusCommand(ctx));
 
 export const runCli = async (args: readonly string[] = process.argv): Promise<void> => {
