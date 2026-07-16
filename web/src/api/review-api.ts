@@ -16,6 +16,7 @@ import type {
   HealthApiResponse,
   ApiErrorResponse,
   ReviewProjectView,
+  ReviewAssetRightsView,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -102,8 +103,11 @@ export function resolveBaseUrl(): string {
 
   const params = new URLSearchParams(window.location.search);
   const port = params.get("port");
-  if (port) {
-    return `http://127.0.0.1:${port}`;
+  if (port && /^[0-9]{1,5}$/.test(port)) {
+    const portNumber = Number(port);
+    if (portNumber >= 1 && portNumber <= 65535) {
+      return `http://127.0.0.1:${portNumber}`;
+    }
   }
 
   // Default: same origin (Vite proxy or review server static serving)
@@ -165,6 +169,10 @@ export class ReviewApiClient {
       let message: string;
       let errorCode: string;
       switch (code) {
+        case 400:
+          message = "请求无效";
+          errorCode = "invalid_request";
+          break;
         case 401:
           message = "需要提供 session token";
           errorCode = "session_required";
@@ -176,6 +184,22 @@ export class ReviewApiClient {
         case 404:
           message = "请求的资源不存在";
           errorCode = "not_found";
+          break;
+        case 409:
+          message = "当前操作与项目状态冲突";
+          errorCode = "conflict";
+          break;
+        case 413:
+          message = "上传文件过大";
+          errorCode = "payload_too_large";
+          break;
+        case 415:
+          message = "仅支持 PNG/JPEG 格式";
+          errorCode = "unsupported_media_type";
+          break;
+        case 500:
+          message = "服务器内部错误";
+          errorCode = "internal_error";
           break;
         default:
           message = `服务器返回错误 ${code}`;
@@ -221,6 +245,146 @@ export class ReviewApiClient {
         method: "GET",
         headers: this.getHeaders(),
       });
+    } catch {
+      throw new ReviewApiError(
+        "无法连接到本地 Review Server，请确认服务器已启动",
+        "network_error",
+        0,
+        "运行 pnpm s2s review <project> --no-open 启动服务器",
+      );
+    }
+
+    const result = await this.handleResponse<ProjectApiResponse>(response);
+    return result.project;
+  }
+
+  // ---------------------------------------------------------------------
+  // Mutation methods (M5-02)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Shared helper for JSON mutation requests.
+   *
+   * Sets method, Content-Type: application/json, Accept: application/json,
+   * and X-S2S-Session. Network errors are mapped to ReviewApiError("network_error").
+   * The token is never included in the error message.
+   */
+  private async jsonMutation(
+    path: string,
+    method: "PUT" | "POST" | "PATCH",
+    body: unknown,
+  ): Promise<ReviewProjectView> {
+    let response: Response;
+    try {
+      response = await fetch(this.buildUrl(path), {
+        method,
+        headers: {
+          ...this.getHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new ReviewApiError(
+        "无法连接到本地 Review Server，请确认服务器已启动",
+        "network_error",
+        0,
+        "运行 pnpm s2s review <project> --no-open 启动服务器",
+      );
+    }
+
+    const result = await this.handleResponse<ProjectApiResponse>(response);
+    return result.project;
+  }
+
+  /**
+   * PUT /api/scenes/:sceneId/selection
+   *
+   * Selects an asset candidate for a scene. If the candidate's rights carry
+   * warnings, the backend may return 409 conflict when rightsAcknowledged
+   * is false. The caller should allow the user to confirm and retry with
+   * rightsAcknowledged=true.
+   */
+  async selectCandidate(
+    sceneId: string,
+    input: { candidateId: string; rightsAcknowledged: boolean },
+  ): Promise<ReviewProjectView> {
+    return this.jsonMutation(`/api/scenes/${encodeURIComponent(sceneId)}/selection`, "PUT", {
+      candidateId: input.candidateId,
+      rightsAcknowledged: input.rightsAcknowledged,
+    });
+  }
+
+  /**
+   * PUT /api/scenes/:sceneId/skip
+   *
+   * Marks a scene as skipped. The note is optional.
+   * Search candidates are preserved as an audit chain.
+   */
+  async skipScene(sceneId: string, input?: { note?: string }): Promise<ReviewProjectView> {
+    const body: Record<string, unknown> = {};
+    if (input?.note !== undefined && input.note.trim().length > 0) {
+      body.note = input.note.trim();
+    }
+    return this.jsonMutation(`/api/scenes/${encodeURIComponent(sceneId)}/skip`, "PUT", body);
+  }
+
+  /**
+   * POST /api/scenes/:sceneId/search
+   *
+   * Triggers an asset search for exactly one scene using the specified provider.
+   * Returns the fresh UI-safe project view after search completes.
+   */
+  async searchScene(
+    sceneId: string,
+    input: { provider: "fixture" | "pexels"; refresh?: boolean; limit?: number },
+  ): Promise<ReviewProjectView> {
+    const body: Record<string, unknown> = { provider: input.provider };
+    if (input.refresh !== undefined) body.refresh = input.refresh;
+    if (input.limit !== undefined) body.limit = input.limit;
+    return this.jsonMutation(`/api/scenes/${encodeURIComponent(sceneId)}/search`, "POST", body);
+  }
+
+  /**
+   * POST /api/scenes/:sceneId/local-asset
+   *
+   * Uploads a local image file and attaches it to a scene.
+   * Uses multipart/form-data — the Content-Type is NOT set manually so
+   * the browser/fetch can set it with the correct boundary.
+   */
+  async uploadLocalAsset(
+    sceneId: string,
+    input: {
+      file: File;
+      provenance:
+        | { kind: "user_owned"; note?: string }
+        | { kind: "selected_candidate"; candidateId: string }
+        | {
+            kind: "external";
+            sourcePageUrl?: string;
+            rights: ReviewAssetRightsView;
+            note?: string;
+          };
+      note?: string;
+    },
+  ): Promise<ReviewProjectView> {
+    const formData = new FormData();
+    formData.append("file", input.file);
+    formData.append("provenance", JSON.stringify(input.provenance));
+    if (input.note !== undefined && input.note.trim().length > 0) {
+      formData.append("note", input.note.trim());
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(
+        this.buildUrl(`/api/scenes/${encodeURIComponent(sceneId)}/local-asset`),
+        {
+          method: "POST",
+          headers: this.getHeaders(),
+          body: formData,
+        },
+      );
     } catch {
       throw new ReviewApiError(
         "无法连接到本地 Review Server，请确认服务器已启动",

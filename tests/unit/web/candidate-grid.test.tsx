@@ -10,6 +10,8 @@ import {
   createProjectWithSelectedCandidate,
 } from "../../fixtures/web-test-data.js";
 
+const noopUpload = (): void => {};
+
 describe("CandidateGrid", () => {
   it("1. renders candidate cards when candidates exist", () => {
     const project = createMinimalProject();
@@ -93,7 +95,7 @@ describe("Inspector — local asset", () => {
     const project = createProjectWithLocalAsset();
     const scene = project.scenes[0]!;
 
-    render(<Inspector scene={scene} />);
+    render(<Inspector scene={scene} onUploadLocalAsset={noopUpload} uploadBusy={false} />);
 
     expect(screen.getByText("assets/scene-001/abc123.png")).toBeDefined();
     expect(screen.getByText("image/png")).toBeDefined();
@@ -102,21 +104,24 @@ describe("Inspector — local asset", () => {
     expect(screen.getByText("用户自有素材")).toBeDefined();
   });
 
-  it("6. shows import placeholder when no localAsset", () => {
+  it("6. shows upload control when no localAsset", () => {
     const project = createMinimalProject();
     const scene = project.scenes[0]!; // pending review
 
-    render(<Inspector scene={scene} />);
+    render(<Inspector scene={scene} onUploadLocalAsset={noopUpload} uploadBusy={false} />);
 
-    expect(screen.getByText("导入已手动下载的文件")).toBeDefined();
-    expect(screen.getByText("下一任务接入")).toBeDefined();
+    // Upload control should be visible
+    expect(screen.getByTestId("local-asset-upload")).toBeDefined();
+    expect(screen.getByTestId("upload-button")).toBeDefined();
+    // Should NOT show "下一任务接入"
+    expect(screen.queryByText("下一任务接入")).toBeNull();
   });
 
   it("7. shows selected candidate evidence when candidate_selected", () => {
     const project = createProjectWithSelectedCandidate();
     const scene = project.scenes[0]!;
 
-    render(<Inspector scene={scene} />);
+    render(<Inspector scene={scene} onUploadLocalAsset={noopUpload} uploadBusy={false} />);
 
     expect(screen.getByText("当前选择")).toBeDefined();
     expect(screen.getByText("candidate-001")).toBeDefined();
@@ -128,7 +133,7 @@ describe("Inspector — local asset", () => {
     const project = createProjectWithSelectedCandidate();
     const scene = project.scenes[0]!;
 
-    render(<Inspector scene={scene} />);
+    render(<Inspector scene={scene} onUploadLocalAsset={noopUpload} uploadBusy={false} />);
 
     expect(screen.getByText("许可快照")).toBeDefined();
     expect(screen.getByText("platform_license")).toBeDefined();

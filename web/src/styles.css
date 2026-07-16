@@ -769,6 +769,164 @@ input {
   font-size: 14px;
 }
 
+/* ---------- Action buttons ---------- */
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---------- Action error banner ---------- */
+
+.action-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e8b3ae;
+  border-radius: var(--radius);
+  background: var(--danger-soft);
+  color: var(--danger);
+  margin-bottom: 14px;
+}
+
+.action-error svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.action-error-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.action-error-body strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.action-error-body span {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.action-error-dismiss {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+}
+
+.action-error-dismiss:hover {
+  opacity: 1;
+}
+
+/* ---------- Rights warning dialog ---------- */
+
+.rights-dialog {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e0c97a;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  margin-bottom: 14px;
+}
+
+.rights-dialog-icon {
+  flex-shrink: 0;
+  color: var(--warn);
+}
+
+.rights-dialog-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rights-dialog-body strong {
+  font-size: 13px;
+  color: #704300;
+}
+
+.rights-dialog-body span {
+  font-size: 12px;
+  color: #704300;
+  opacity: 0.85;
+}
+
+.rights-dialog-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---------- Local asset upload ---------- */
+
+.local-asset-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: #fafaf7;
+}
+
+.local-asset-upload input[type="file"] {
+  font-size: 12px;
+}
+
+.selected-file-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.selected-file-info .file-size {
+  color: var(--muted);
+}
+
+.provenance-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.provenance-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.provenance-select select {
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 1100px) {

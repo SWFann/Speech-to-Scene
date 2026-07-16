@@ -1,9 +1,12 @@
-import { Upload, ExternalLink, ShieldAlert } from "lucide-react";
+import { ExternalLink, ShieldAlert } from "lucide-react";
 
 import type { ReviewSceneView, ReviewLocalAssetView } from "../types.js";
+import { LocalAssetUpload, type UploadProvenance } from "./LocalAssetUpload.js";
 
 interface InspectorProps {
   scene: ReviewSceneView;
+  onUploadLocalAsset: (input: { file: File; provenance: UploadProvenance }) => void;
+  uploadBusy: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -30,7 +33,11 @@ function provenanceLabel(asset: ReviewLocalAssetView): string {
   return "未知来源";
 }
 
-export function Inspector({ scene }: InspectorProps): React.ReactElement {
+export function Inspector({
+  scene,
+  onUploadLocalAsset,
+  uploadBusy,
+}: InspectorProps): React.ReactElement {
   const review = scene.review;
   const localAsset =
     review.kind === "candidate_selected"
@@ -172,14 +179,7 @@ export function Inspector({ scene }: InspectorProps): React.ReactElement {
               </div>
             </div>
           ) : (
-            <div className="attach-zone">
-              <div>
-                <strong>
-                  <Upload size={16} style={{ verticalAlign: "-2px" }} /> 导入已手动下载的文件
-                </strong>
-                <span>下一任务接入</span>
-              </div>
-            </div>
+            <LocalAssetUpload scene={scene} onUpload={onUploadLocalAsset} busy={uploadBusy} />
           )}
           <div className="footer-note">
             工具记录来源证据，不替用户作法律保证。发布前请复核原始页面。
