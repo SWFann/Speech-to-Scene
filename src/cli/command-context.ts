@@ -18,6 +18,8 @@ import { FileSystemProjectScaffolder } from "../infrastructure/project-scaffolde
 import { createProject } from "../application/create-project.js";
 import { getProjectStatusUseCase } from "../application/get-project-status.js";
 import { getReviewProject } from "../application/get-review-project.js";
+import { updateScene } from "../application/update-scene.js";
+import { updateSceneQueries } from "../application/update-scene-queries.js";
 import { formatError, formatUnexpectedError } from "./error-reporter.js";
 import type { Clock } from "../application/ports/clock.js";
 import type { IdGenerator } from "../application/ports/id-generator.js";
@@ -37,6 +39,8 @@ export interface CommandContext {
   createProject: typeof createProject;
   getProjectStatus: typeof getProjectStatusUseCase;
   getReviewProject: typeof getReviewProject;
+  updateScene: typeof updateScene;
+  updateSceneQueries: typeof updateSceneQueries;
   formatError: (error: AppError) => string;
   formatUnexpectedError: (error: unknown) => string;
 }
@@ -58,6 +62,8 @@ export function createCommandContext(): CommandContext {
     createProject,
     getProjectStatus: getProjectStatusUseCase,
     getReviewProject,
+    updateScene,
+    updateSceneQueries,
     formatError,
     formatUnexpectedError,
   };

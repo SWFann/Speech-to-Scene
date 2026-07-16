@@ -27,6 +27,8 @@ import type {
   ReviewServerDependencies,
 } from "../../src/review/review-types.js";
 import { getReviewProject } from "../../src/application/get-review-project.js";
+import { updateScene } from "../../src/application/update-scene.js";
+import { updateSceneQueries } from "../../src/application/update-scene-queries.js";
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
 import { SpeechToSceneProjectSchema } from "../../src/domain/project-schema.js";
@@ -230,6 +232,8 @@ async function startTestServer(
   const deps: ReviewServerDependencies = {
     repository: repo,
     getReviewProject,
+    updateScene,
+    updateSceneQueries,
   };
 
   const handle = await startReviewServer(

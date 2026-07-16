@@ -34,7 +34,13 @@ import type {
 } from "./review-types.js";
 import { validateConfiguredBindHost } from "./security/host-validation.js";
 import { validateConfiguredToken, generateSessionToken } from "./security/session-token.js";
-import { createRoutes, matchRoute, parseRouteParams } from "./router.js";
+import {
+  createRoutes,
+  matchRoute,
+  getMatchedParams,
+  matchPath,
+  pathHasMalformedEncoding,
+} from "./router.js";
 import {
   applySecurityHeaders,
   applySecurityHeadersWithAllow,
@@ -45,7 +51,7 @@ import {
   runPostRoutingGate,
   type RequestSecurityConfig,
 } from "./request-security.js";
-import { ERROR_NOT_FOUND, ERROR_METHOD_NOT_ALLOWED } from "./http-errors.js";
+import { ERROR_NOT_FOUND, ERROR_METHOD_NOT_ALLOWED, ERROR_INVALID_REQUEST } from "./http-errors.js";
 import { validateSessionToken } from "./security/session-token.js";
 
 // ---------------------------------------------------------------------------
@@ -138,7 +144,11 @@ function createRequestHandler(
 
     if (route === undefined) {
       // Check if path exists but method is wrong → 405
-      const matchingPath = routes.find((r) => r.path === urlPath);
+      // Use matchPath to detect path-only matches (works for param routes too)
+      const matchingPath = routes.find((r) => {
+        const params: Record<string, string> = {};
+        return matchPath(r.path, urlPath, params);
+      });
       if (matchingPath) {
         applySecurityHeadersWithAllow(res, [...matchingPath.methods]);
         sendError(
@@ -147,6 +157,14 @@ function createRequestHandler(
           ERROR_METHOD_NOT_ALLOWED,
           `Method ${method} is not allowed for ${urlPath}`,
         );
+        return;
+      }
+
+      // Check for malformed percent-encoding before falling through to 404.
+      // A malformed path segment (e.g. /api/scenes/%E0%A4%A) must return
+      // 400 invalid_request, not 404 or 500.
+      if (pathHasMalformedEncoding(urlPath)) {
+        sendError(res, 400, ERROR_INVALID_REQUEST, "Malformed URL encoding");
         return;
       }
 
@@ -181,7 +199,7 @@ function createRequestHandler(
 
     // 6. Execute route handler
     try {
-      const params = { pathParams: parseRouteParams(route.path, urlPath) };
+      const params = { pathParams: getMatchedParams(route) };
       const result = route.handler(req, res, params);
 
       // Handle async handlers — destroy response safely if headers already sent

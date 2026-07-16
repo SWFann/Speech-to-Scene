@@ -24,6 +24,8 @@ import type {
   ReviewServerDependencies,
 } from "../../src/review/review-types.js";
 import { getReviewProject } from "../../src/application/get-review-project.js";
+import { updateScene } from "../../src/application/update-scene.js";
+import { updateSceneQueries } from "../../src/application/update-scene-queries.js";
 import { JsonProjectRepository } from "../../src/infrastructure/json-project-repository.js";
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
@@ -185,6 +187,8 @@ async function startServerWithRealRepo(
   const deps: ReviewServerDependencies = {
     repository: repo,
     getReviewProject,
+    updateScene,
+    updateSceneQueries,
   };
   const handle = await startReviewServer({ projectRoot, host: "127.0.0.1", port: 0, token }, deps);
   servers.push({ handle });
@@ -316,6 +320,8 @@ describe("Unknown repository error → HTTP mapping", () => {
     const deps: ReviewServerDependencies = {
       repository: repo,
       getReviewProject,
+      updateScene,
+      updateSceneQueries,
     };
     const handle = await startReviewServer(
       { projectRoot: "/fake/root", host: "127.0.0.1", port: 0, token: "test-token" },

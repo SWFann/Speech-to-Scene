@@ -322,3 +322,50 @@ export class ProjectNotPlannedError extends AppError {
     super(params);
   }
 }
+
+// ---------------------------------------------------------------------------
+// M4 review-server errors
+// ---------------------------------------------------------------------------
+
+/**
+ * A scene with the given ID was not found in the project.
+ * Exit code: 2
+ *
+ * The `sceneId` is included in the message for diagnostics but never includes
+ * absolute paths, stack traces, or internal state.
+ */
+export class SceneNotFoundError extends AppError {
+  constructor(sceneId: string, cause?: Error) {
+    const params: ConstructorParameters<typeof AppError>[0] = {
+      code: "scene_not_found",
+      message: `Scene not found: ${sceneId}`,
+      exitCode: 2,
+      userHint: "场景不存在，请刷新项目后重试",
+    };
+    if (cause !== undefined) params.cause = cause;
+    super(params);
+  }
+}
+
+/**
+ * The requested mutation conflicts with the current project state.
+ *
+ * Examples:
+ * - Setting visualPlan.decision to "stock_asset" when the scene has no
+ *   enabled search query.
+ * - Replacing queries so that candidates reference non-existent query IDs.
+ *
+ * Exit code: 2
+ */
+export class ProjectConflictError extends AppError {
+  constructor(message: string, userHint: string, cause?: Error) {
+    const params: ConstructorParameters<typeof AppError>[0] = {
+      code: "project_conflict",
+      message,
+      exitCode: 2,
+      userHint,
+    };
+    if (cause !== undefined) params.cause = cause;
+    super(params);
+  }
+}

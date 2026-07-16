@@ -2,18 +2,68 @@
  * Router for the Review Server.
  *
  * Defines all API routes and handles path matching.
+ *
  * M4-02: GET /api/health (no token required)
  * M4-03B: GET /api/project (session token required)
+ * M4-04B: PATCH /api/scenes/:sceneId (session token + Origin required)
+ * M4-04B: PUT  /api/scenes/:sceneId/queries (session token + Origin required)
  *
  * Response utilities (applySecurityHeaders, sendError, sendSuccess, etc.)
  * are NOT defined here — they live in security/response-headers.ts and
  * json-response.ts. This file only defines routes and path matching.
  */
 
+import { z } from "zod";
+
 import type { RouteDefinition } from "./review-types.js";
 import type { ReviewServerDependencies } from "./review-types.js";
 import { sendSuccess, sendError, sendInternalError } from "./json-response.js";
+import { parseJsonBody } from "./json-body.js";
 import type { ServerResponse } from "node:http";
+import { ERROR_INVALID_REQUEST } from "./http-errors.js";
+import { IdSchema } from "../domain/schema-primitives.js";
+
+// ---------------------------------------------------------------------------
+// Request body schemas (M4-04BF)
+// ---------------------------------------------------------------------------
+
+/**
+ * Strict schema for PUT /api/scenes/:sceneId/queries body.
+ *
+ * Uses z.strictObject to reject any unknown top-level fields.
+ * Only `{ queries: [...] }` is accepted.
+ */
+const PutQueriesBodySchema = z.strictObject({
+  queries: z.array(z.unknown()),
+});
+
+// ---------------------------------------------------------------------------
+// Scene ID validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates a sceneId path segment.
+ *
+ * Rejects:
+ * - empty strings
+ * - strings with `/`, `\`, or whitespace
+ * - strings that don't conform to IdSchema semantics
+ *
+ * Returns the validated sceneId or null if invalid.
+ */
+function validateSceneId(raw: string): string | null {
+  // Reject empty or whitespace
+  if (!raw || raw !== raw.trim()) {
+    return null;
+  }
+  // Reject path separators
+  if (raw.includes("/") || raw.includes("\\")) {
+    return null;
+  }
+  // Validate against IdSchema
+  const result = IdSchema.safeParse(raw);
+  return result.success ? result.data : null;
+}
 
 // ---------------------------------------------------------------------------
 // Route table
@@ -49,9 +99,11 @@ export function createRoutes(config: {
     },
   ];
 
-  // M4-03B: GET /api/project (requires session token)
+  // M4-03B + M4-04B: routes that require injected dependencies
   if (config.deps) {
-    const { repository, getReviewProject } = config.deps;
+    const { repository, getReviewProject, updateScene, updateSceneQueries } = config.deps;
+
+    // GET /api/project (requires session token)
     routes.push({
       path: "/api/project",
       methods: ["GET"],
@@ -62,6 +114,125 @@ export function createRoutes(config: {
         } catch (error) {
           // Map errors to safe HTTP responses — never leak internal details
           mapProjectLoadError(error, res);
+        }
+      },
+    });
+
+    // PATCH /api/scenes/:sceneId
+    routes.push({
+      path: "/api/scenes/:sceneId",
+      methods: ["PATCH"],
+      handler: async (req, res, params) => {
+        const sceneId = params.pathParams["sceneId"];
+
+        // Validate sceneId from path
+        const validSceneId = validateSceneId(sceneId ?? "");
+        if (!validSceneId) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+          return;
+        }
+
+        // Read and parse JSON body
+        const bodyResult = await parseJsonBody(req, res);
+        if (!bodyResult.success) {
+          sendError(
+            res,
+            bodyResult.statusCode,
+            bodyResult.code,
+            bodyResult.message,
+            bodyResult.hint ?? undefined,
+          );
+          return;
+        }
+
+        // Reject no-op patch: { visualPlan: {} } with no fields to update
+        const patchData = bodyResult.data;
+        if (
+          typeof patchData === "object" &&
+          patchData !== null &&
+          !Array.isArray(patchData) &&
+          "visualPlan" in patchData &&
+          typeof patchData["visualPlan"] === "object" &&
+          patchData["visualPlan"] !== null &&
+          !Array.isArray(patchData["visualPlan"]) &&
+          Object.keys(patchData["visualPlan"]).length === 0 &&
+          !("reviewNote" in patchData)
+        ) {
+          sendError(
+            res,
+            400,
+            ERROR_INVALID_REQUEST,
+            "visualPlan patch must have at least one field",
+          );
+          return;
+        }
+
+        // Build the use case input
+        const useCaseInput = {
+          projectRoot: config.projectRoot,
+          sceneId: validSceneId,
+          patch: bodyResult.data,
+        };
+
+        try {
+          await updateScene(useCaseInput, { repository });
+          // Success: return fresh UI-safe view
+          const project = await getReviewProject(config.projectRoot, repository);
+          sendSuccess(res, 200, { project });
+        } catch (error) {
+          mapMutationError(error, res);
+        }
+      },
+    });
+
+    // PUT /api/scenes/:sceneId/queries
+    routes.push({
+      path: "/api/scenes/:sceneId/queries",
+      methods: ["PUT"],
+      handler: async (req, res, params) => {
+        const sceneId = params.pathParams["sceneId"];
+
+        // Validate sceneId from path
+        const validSceneId = validateSceneId(sceneId ?? "");
+        if (!validSceneId) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+          return;
+        }
+
+        // Read and parse JSON body
+        const bodyResult = await parseJsonBody(req, res);
+        if (!bodyResult.success) {
+          sendError(
+            res,
+            bodyResult.statusCode,
+            bodyResult.code,
+            bodyResult.message,
+            bodyResult.hint ?? undefined,
+          );
+          return;
+        }
+
+        // Strict Zod validation: only { queries: [...] } is accepted.
+        // Unknown top-level fields (e.g. extra, projectRoot, sceneId) are rejected.
+        const bodyParse = PutQueriesBodySchema.safeParse(bodyResult.data);
+        if (!bodyParse.success) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
+          return;
+        }
+
+        const useCaseInput = {
+          projectRoot: config.projectRoot,
+          sceneId: validSceneId,
+          queries: bodyParse.data.queries,
+        };
+
+        try {
+          await updateSceneQueries(useCaseInput, { repository });
+          // Success: return fresh UI-safe view
+          const project = await getReviewProject(config.projectRoot, repository);
+          sendSuccess(res, 200, { project });
+        } catch (error) {
+          mapMutationError(error, res);
         }
       },
     });
@@ -105,28 +276,209 @@ function mapProjectLoadError(error: unknown, res: ServerResponse): void {
   sendInternalError(res);
 }
 
+/**
+ * Maps mutation use case errors to safe HTTP responses.
+ *
+ * Error code → status mapping:
+ * - ZodError → 400 invalid_request
+ * - SceneNotFoundError → 404 not_found
+ * - ProjectConflictError → 409 conflict
+ * - ProjectValidationError → 409 conflict
+ * - Unknown → 500 internal_error
+ *
+ * Never includes: absolute paths, stack traces, raw Zod issues,
+ * raw exception messages, session tokens, or API keys.
+ */
+function mapMutationError(error: unknown, res: ServerResponse): void {
+  // ZodError (input validation failure) → 400 invalid_request
+  if (z.ZodError[Symbol.hasInstance](error)) {
+    sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
+    return;
+  }
+
+  const err = error as { code?: string };
+  const code = err?.code ?? "";
+
+  // SceneNotFoundError → 404
+  if (code === "scene_not_found") {
+    sendError(res, 404, "not_found", "Scene not found", "Refresh the project and try again");
+    return;
+  }
+
+  // ProjectConflictError → 409 conflict
+  if (code === "project_conflict") {
+    sendError(res, 409, "conflict", "Conflict with current project state", undefined);
+    return;
+  }
+
+  // ProjectValidationError / schema invalid → 409 conflict
+  if (
+    code === "project_validation_error" ||
+    code === "unsupported_schema_version" ||
+    code === "project_file_too_large" ||
+    code === "source_document_error"
+  ) {
+    sendError(res, 409, "conflict", "Project data is invalid", undefined);
+    return;
+  }
+
+  // ProjectNotFoundError → 404
+  if (code === "project_not_found") {
+    sendError(res, 404, "not_found", "Project not found", "Ensure the project was created");
+    return;
+  }
+
+  // Unknown errors → 500
+  sendInternalError(res);
+}
+
 // ---------------------------------------------------------------------------
 // Path matching
 // ---------------------------------------------------------------------------
 
 /**
+ * Checks if a route path pattern contains parameters (e.g., `:sceneId`).
+ */
+export function hasParams(routePath: string): boolean {
+  return routePath.includes(":");
+}
+
+/**
+ * Safely decodes a URI component without throwing.
+ *
+ * `decodeURIComponent` throws `URIError` on malformed percent-encoding
+ * (e.g. `%E0%A4%A` — truncated UTF-8 sequence). This wrapper returns
+ * `null` instead of throwing, allowing the caller to handle the error
+ * gracefully.
+ *
+ * @returns The decoded string, or `null` if the input is malformed.
+ */
+export function safeDecodeURIComponent(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Checks whether any segment of a URL path contains malformed
+ * percent-encoding that would cause `decodeURIComponent` to throw.
+ *
+ * @returns `true` if at least one segment is malformed.
+ */
+export function pathHasMalformedEncoding(urlPath: string): boolean {
+  const segments = urlPath.split("/");
+  for (const seg of segments) {
+    if (safeDecodeURIComponent(seg) === null) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Matches a request path against a route path pattern.
+ *
+ * For static routes (no `:`), does exact string comparison.
+ * For parameterized routes, splits on `/` and matches segment by segment,
+ * extracting `:param` values.
+ *
+ * Uses `safeDecodeURIComponent` to avoid throwing on malformed
+ * percent-encoding. If a segment cannot be decoded, `matchPath`
+ * returns `false` (no match).
+ *
+ * @returns `true` if the path matches, `false` otherwise.
+ *          If matched, `params` is populated with extracted values.
+ */
+export function matchPath(
+  routePath: string,
+  requestPath: string,
+  params: Record<string, string>,
+): boolean {
+  if (!hasParams(routePath)) {
+    return routePath === requestPath;
+  }
+
+  const routeSegments = routePath.split("/");
+  const requestSegments = requestPath.split("/");
+
+  if (routeSegments.length !== requestSegments.length) {
+    return false;
+  }
+
+  for (let i = 0; i < routeSegments.length; i++) {
+    const routeSeg = routeSegments[i]!;
+    const requestSeg = requestSegments[i]!;
+
+    if (routeSeg.startsWith(":")) {
+      // Parameter segment — extract the value (URL-decode safely)
+      const paramName = routeSeg.slice(1);
+      const decoded = safeDecodeURIComponent(requestSeg);
+      if (decoded === null) {
+        // Malformed percent-encoding — do not match this route.
+        // The caller (review-server) will detect malformed encoding
+        // via pathHasMalformedEncoding and return 400.
+        return false;
+      }
+      params[paramName] = decoded;
+    } else if (routeSeg !== requestSeg) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Finds a matching route for the request method and path.
+ *
+ * For parameterized routes (containing `:param`), extracts path parameters
+ * and passes them to the handler via `RouteParams.pathParams`.
  */
 export function matchRoute(
   routes: RouteDefinition[],
   method: string,
   urlPath: string,
 ): RouteDefinition | undefined {
-  return routes.find((r) => r.path === urlPath && r.methods.includes(method));
+  for (const route of routes) {
+    if (route.methods.includes(method)) {
+      const params: Record<string, string> = {};
+      if (matchPath(route.path, urlPath, params)) {
+        // Attach extracted params to the route definition for this match
+        // We use a closure to pass params to the handler
+        (route as { _matchedParams?: Record<string, string> })._matchedParams = params;
+        return route;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
- * Parses path parameters from a route path.
+ * Parses path parameters from a route path and request path.
  *
- * For M4-02+, only exact-match routes are used, so this returns an empty object.
- * Future milestones can add :param extraction here.
+ * This is called by the server after route matching. It uses the params
+ * extracted during `matchRoute` (stored as `_matchedParams`).
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for future M4-03+ route param extraction
-export function parseRouteParams(_routePath: string, _requestPath: string): Record<string, string> {
+export function parseRouteParams(): Record<string, string> {
+  // Parameters are extracted during matchRoute and stored on the route object.
+  // This function returns an empty object if called independently (for testing).
   return {};
+}
+
+// ---------------------------------------------------------------------------
+// Helper to extract matched params (used by review-server.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieves the path parameters that were extracted during `matchRoute`.
+ *
+ * This is called by the server after `matchRoute` has identified a matching
+ * route. The params were stored on the route object during matching.
+ *
+ * @internal
+ */
+export function getMatchedParams(route: RouteDefinition): Record<string, string> {
+  return (route as { _matchedParams?: Record<string, string> })._matchedParams ?? {};
 }

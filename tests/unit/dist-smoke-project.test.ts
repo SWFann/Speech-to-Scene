@@ -349,3 +349,184 @@ describe("dist smoke test — Project API", () => {
     }
   }, 30000);
 });
+
+// ---------------------------------------------------------------------------
+// Helper: generic HTTP request with method + body support
+// ---------------------------------------------------------------------------
+
+async function httpRequestWithBody(
+  port: number,
+  method: string,
+  urlPath: string,
+  options: { host?: string; token?: string; body?: string } = {},
+): Promise<HttpResponse> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: urlPath,
+        method,
+        headers: {
+          "content-type": "application/json",
+          ...(options.host !== undefined ? { host: options.host } : {}),
+          ...(options.token !== undefined ? { "x-s2s-session": options.token } : {}),
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        const chunks: Array<Buffer | Uint8Array> = [];
+        res.on("data", (chunk) => chunks.push(chunk as Buffer | Uint8Array));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf-8");
+          let body: unknown;
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            body = raw;
+          }
+          resolve({ status: res.statusCode ?? 0, body, headers: {} });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("Request timeout"));
+    });
+    if (options.body) {
+      req.write(options.body);
+    }
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Scene Update + Queries lifecycle smoke test
+// ---------------------------------------------------------------------------
+
+describe("dist smoke test — Scene Update + Queries API", () => {
+  it("PATCH scene, PUT queries, verify persistence, SIGINT shutdown", async () => {
+    // Ensure dist is built fresh
+    try {
+      execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() });
+    } catch {
+      throw new Error("pnpm build failed — cannot run dist smoke without fresh build");
+    }
+
+    // Create temp project
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-smoke-scene-"));
+    tempDirs.push(dir);
+    await fs.writeFile(
+      path.join(dir, PROJECT_FILE_NAME),
+      JSON.stringify(makeValidProject(), null, 2) + "\n",
+      "utf-8",
+    );
+
+    const TOKEN = "smoke-scene-token";
+    const server = await spawnDistServer(dir, TOKEN);
+
+    try {
+      const host = `127.0.0.1:${server.port}`;
+
+      // 1. PATCH /api/scenes/scene-001 — update visualPlan
+      const patchRes = await httpRequestWithBody(server.port, "PATCH", "/api/scenes/scene-001", {
+        host,
+        token: TOKEN,
+        body: JSON.stringify({
+          visualPlan: { rationale: "Smoke PATCH rationale" },
+        }),
+      });
+      expect(patchRes.status).toBe(200);
+      expect((patchRes.body as { ok: boolean }).ok).toBe(true);
+
+      // 2. GET /api/project — verify PATCH persisted
+      const getAfterPatch = await httpGet(server.port, "/api/project", {
+        host,
+        token: TOKEN,
+      });
+      expect(getAfterPatch.status).toBe(200);
+      // Step-by-step casts to avoid parser issues with nested generics
+      const patchProject = (getAfterPatch.body as { project: unknown }).project;
+      const patchScenes = (patchProject as { scenes: Array<{ visualPlan: { rationale: string } }> })
+        .scenes;
+      expect(patchScenes[0]!.visualPlan.rationale).toBe("Smoke PATCH rationale");
+
+      // 3. PUT /api/scenes/scene-001/queries — replace queries
+      const putRes = await httpRequestWithBody(
+        server.port,
+        "PUT",
+        "/api/scenes/scene-001/queries",
+        {
+          host,
+          token: TOKEN,
+          body: JSON.stringify({
+            queries: [
+              {
+                id: "q-smoke-1",
+                language: "zh",
+                query: "烟雾测试",
+                purpose: "main",
+                enabled: true,
+              },
+              {
+                id: "q-smoke-2",
+                language: "en",
+                query: "smoke test",
+                purpose: "alt",
+                enabled: false,
+              },
+            ],
+          }),
+        },
+      );
+      expect(putRes.status).toBe(200);
+      expect((putRes.body as { ok: boolean }).ok).toBe(true);
+
+      // 4. GET /api/project — verify queries persisted
+      const getAfterPut = await httpGet(server.port, "/api/project", {
+        host,
+        token: TOKEN,
+      });
+      expect(getAfterPut.status).toBe(200);
+      // Step-by-step casts to avoid parser issues with nested generics
+      const putProject = (getAfterPut.body as { project: unknown }).project;
+      const putScenes = (putProject as { scenes: unknown[] }).scenes;
+      const putScene0 = putScenes[0] as { search: { queries: Array<{ id: string }> } };
+      const queriesAfterPut = putScene0.search.queries;
+      expect(queriesAfterPut).toHaveLength(2);
+      expect(queriesAfterPut[0]!.id).toBe("q-smoke-1");
+      expect(queriesAfterPut[1]!.id).toBe("q-smoke-2");
+
+      // 5. Verify response does not leak sensitive info
+      const bodyStr = JSON.stringify(putRes.body);
+      expect(bodyStr).not.toContain(dir);
+      expect(bodyStr).not.toContain(TOKEN);
+
+      // 6. SIGINT clean shutdown (POSIX only)
+      if (process.platform !== "win32") {
+        const exitCode = await new Promise<number>((resolve) => {
+          server.child.on("exit", (code) => resolve(code ?? -1));
+          server.child.kill("SIGINT");
+          setTimeout(() => {
+            server.child.kill("SIGKILL");
+            resolve(-1);
+          }, 10000);
+        });
+        expect(exitCode).toBe(0);
+      } else {
+        await server.kill();
+        expect(server.child.exitCode).not.toBeNull();
+      }
+
+      // 7. stderr has no unhandled exceptions
+      const stderr = server.stderrChunks.join("");
+      expect(stderr).not.toContain("Unhandled");
+      expect(stderr).not.toContain("TypeError");
+    } finally {
+      if (server.child.exitCode === null && server.child.pid !== null) {
+        await server.kill();
+      }
+    }
+  }, 30000);
+});

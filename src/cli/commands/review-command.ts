@@ -74,6 +74,8 @@ export function createReviewCommand(ctx: CommandContext): Command {
         const deps: ReviewServerDependencies = {
           repository: ctx.repository,
           getReviewProject: ctx.getReviewProject,
+          updateScene: ctx.updateScene,
+          updateSceneQueries: ctx.updateSceneQueries,
         };
         const handle = await startReviewServer(
           {

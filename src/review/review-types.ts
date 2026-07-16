@@ -9,6 +9,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ProjectRepository } from "../application/ports/project-repository.js";
 import type { ReviewProjectView } from "../application/get-review-project.js";
+import type { UpdateSceneDeps } from "../application/update-scene.js";
+import type { UpdateSceneQueriesDeps } from "../application/update-scene-queries.js";
+import type { SpeechToSceneProject } from "../domain/project-schema.js";
 
 // ---------------------------------------------------------------------------
 // Server configuration
@@ -42,13 +45,20 @@ export interface ReviewServerConfig {
  * as functions.
  */
 export interface ReviewServerDependencies {
-  /** Project repository (used for loading projects). */
+  /** Project repository (used for loading/saving projects). */
   readonly repository: ProjectRepository;
   /** Application use case: getReviewProject(projectRoot, repository). */
   readonly getReviewProject: (
     projectRoot: string,
     repository: ProjectRepository,
   ) => Promise<ReviewProjectView>;
+  /** Application use case: updateScene(input, deps). */
+  readonly updateScene: (input: unknown, deps: UpdateSceneDeps) => Promise<SpeechToSceneProject>;
+  /** Application use case: updateSceneQueries(input, deps). */
+  readonly updateSceneQueries: (
+    input: unknown,
+    deps: UpdateSceneQueriesDeps,
+  ) => Promise<SpeechToSceneProject>;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,9 +122,13 @@ export interface HealthResponse {
 
 /**
  * Definition of a single API route.
+ *
+ * For M4-04B, `path` may contain `:param` segments (e.g.,
+ * `/api/scenes/:sceneId`). The `matchRoute` function extracts these
+ * parameters and passes them to the handler via `RouteParams.pathParams`.
  */
 export interface RouteDefinition {
-  /** The URL path pattern (exact match for M4-02). */
+  /** The URL path pattern. May contain `:param` segments. */
   readonly path: string;
   /** Allowed HTTP methods for this route. */
   readonly methods: readonly string[];
