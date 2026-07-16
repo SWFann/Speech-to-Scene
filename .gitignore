@@ -13,6 +13,8 @@ logs/
 **/assets/*
 !**/assets/.gitkeep
 
+web/dist/
+
 .DS_Store
 Thumbs.db
 *.log
