@@ -169,13 +169,18 @@ interface ServerHandle {
 /**
  * Spawns the dist binary directly (no shell), waits for port, returns handle.
  */
-async function spawnDistServer(projectRoot: string, token: string): Promise<ServerHandle> {
+async function spawnDistServer(
+  projectRoot: string,
+  token: string,
+  options: { cwd?: string } = {},
+): Promise<ServerHandle> {
   const stderrChunks: string[] = [];
+  const repoRoot = process.cwd();
 
   const child = spawn(
     "node",
     [
-      "dist/cli/index.js",
+      path.join(repoRoot, "dist", "cli", "index.js"),
       "review",
       projectRoot,
       "--no-open",
@@ -186,7 +191,7 @@ async function spawnDistServer(projectRoot: string, token: string): Promise<Serv
       "--host",
       "127.0.0.1",
     ],
-    { cwd: process.cwd(), stdio: ["pipe", "pipe", "pipe"] },
+    { cwd: options.cwd ?? repoRoot, stdio: ["pipe", "pipe", "pipe"] },
   );
 
   const port = await new Promise<number>((resolve, reject) => {
@@ -914,4 +919,127 @@ describe("dist smoke test — Local Asset Upload API (M4-07)", () => {
       }
     }
   }, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// Static serving smoke test (M5-03)
+// ---------------------------------------------------------------------------
+
+describe("dist smoke test — Static Serving (M5-03)", () => {
+  it("GET / returns HTML, GET /api/project works, API 404 stays JSON", async () => {
+    // Ensure both dist and web/dist are built fresh
+    try {
+      execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() });
+    } catch {
+      throw new Error("pnpm build failed — cannot run dist smoke without fresh build");
+    }
+    try {
+      execSync("pnpm web:build", { stdio: "pipe", cwd: process.cwd() });
+    } catch {
+      throw new Error("pnpm web:build failed — cannot run dist smoke without web build");
+    }
+
+    // Create temp project
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-smoke-static-"));
+    tempDirs.push(dir);
+    await fs.writeFile(
+      path.join(dir, PROJECT_FILE_NAME),
+      JSON.stringify(makeValidProject(), null, 2) + "\n",
+      "utf-8",
+    );
+
+    const TOKEN = "smoke-static-token";
+    const nonRepoCwd = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-non-repo-cwd-"));
+    tempDirs.push(nonRepoCwd);
+    const server = await spawnDistServer(dir, TOKEN, { cwd: nonRepoCwd });
+
+    try {
+      const host = `127.0.0.1:${server.port}`;
+
+      // 1. GET / → should return HTML with id="root"
+      const rootRes = await httpGet(server.port, "/", { host });
+      expect(rootRes.status).toBe(200);
+      const rootBody =
+        typeof rootRes.body === "string" ? rootRes.body : JSON.stringify(rootRes.body);
+      expect(rootBody).toContain('id="root"');
+      expect(rootRes.headers["content-type"] ?? "").toContain("text/html");
+
+      // 2. GET /index.html → should also return HTML
+      const indexRes = await httpGet(server.port, "/index.html", { host });
+      expect(indexRes.status).toBe(200);
+      const indexBody =
+        typeof indexRes.body === "string" ? indexRes.body : JSON.stringify(indexRes.body);
+      expect(indexBody).toContain('id="root"');
+
+      // 3. GET /api/project with token → should still work (JSON)
+      const projectRes = await httpGet(server.port, "/api/project", { host, token: TOKEN });
+      expect(projectRes.status).toBe(200);
+      expect((projectRes.body as { ok: boolean }).ok).toBe(true);
+
+      // 4. GET /api/unknown → should return API 404 JSON, not HTML
+      const apiUnknownRes = await httpGet(server.port, "/api/unknown", { host });
+      expect(apiUnknownRes.status).toBe(404);
+      expect(apiUnknownRes.headers["content-type"] ?? "").toContain("application/json");
+      const apiUnknownBody =
+        typeof apiUnknownRes.body === "string"
+          ? apiUnknownRes.body
+          : JSON.stringify(apiUnknownRes.body);
+      expect(apiUnknownBody).not.toContain('id="root"');
+
+      // 5. GET /assets/<built-js> → should return 200 with JS content-type
+      // Find the actual built JS file name
+      const assetsDir = path.join(process.cwd(), "web", "dist", "assets");
+      const assetFiles = await fs.readdir(assetsDir);
+      const jsFile = assetFiles.find((f) => f.endsWith(".js"));
+      expect(jsFile).toBeDefined();
+      if (jsFile) {
+        const jsRes = await httpGet(server.port, `/assets/${jsFile}`, { host });
+        expect(jsRes.status).toBe(200);
+        expect(jsRes.headers["content-type"] ?? "").toContain("text/javascript");
+      }
+
+      // 6. GET /missing-asset.js → 404, not HTML
+      const missingRes = await httpGet(server.port, "/missing-asset.js", { host });
+      expect(missingRes.status).toBe(404);
+      const missingBody =
+        typeof missingRes.body === "string" ? missingRes.body : JSON.stringify(missingRes.body);
+      expect(missingBody).not.toContain('id="root"');
+
+      // 7. SPA fallback: GET /review → HTML
+      const spaRes = await httpGet(server.port, "/review", { host });
+      expect(spaRes.status).toBe(200);
+      const spaBody = typeof spaRes.body === "string" ? spaRes.body : JSON.stringify(spaRes.body);
+      expect(spaBody).toContain('id="root"');
+
+      // 8. Verify response does not leak absolute paths
+      const rootBodyStr =
+        typeof rootRes.body === "string" ? rootRes.body : JSON.stringify(rootRes.body);
+      expect(rootBodyStr).not.toContain(dir);
+
+      // 9. SIGINT clean shutdown (POSIX only)
+      if (process.platform !== "win32") {
+        const exitCode = await new Promise<number>((resolve) => {
+          server.child.on("exit", (code) => resolve(code ?? -1));
+          server.child.kill("SIGINT");
+          setTimeout(() => {
+            server.child.kill("SIGKILL");
+            resolve(-1);
+          }, 10000);
+        });
+        expect(exitCode).toBe(0);
+      } else {
+        await server.kill();
+        expect(server.child.exitCode).not.toBeNull();
+      }
+
+      // 10. stderr has no unhandled exceptions
+      const stderr = server.stderrChunks.join("");
+      expect(stderr).not.toContain("Unhandled");
+      expect(stderr).not.toContain("TypeError");
+    } finally {
+      if (server.child.exitCode === null && server.child.pid !== null) {
+        await server.kill();
+      }
+    }
+  }, 60000);
 });

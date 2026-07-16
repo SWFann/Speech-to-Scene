@@ -12,6 +12,7 @@
  * M4-04B: PATCH /api/scenes/:sceneId, PUT /api/scenes/:sceneId/queries.
  * M4-05: POST /api/scenes/:sceneId/search (single-scene asset search).
  * M4-06: PUT /api/scenes/:sceneId/selection, PUT /api/scenes/:sceneId/skip.
+ * M5-03: Serves the React Review Board build from web/dist.
  */
 
 import { Command } from "commander";
@@ -25,6 +26,7 @@ import type { SearchProjectAssetsResult } from "../../application/search-project
 import { createSearchProvider, getSearchCacheDir } from "../provider-factory.js";
 import { FileSearchCache } from "../../infrastructure/file-search-cache.js";
 import { readEnv } from "../../infrastructure/env.js";
+import { resolveReviewStaticRoot } from "../review-static-root.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,11 +109,20 @@ export function createReviewCommand(ctx: CommandContext): Command {
           attachLocalAsset: ctx.attachLocalAsset,
           assetWriter: ctx.assetWriter,
         };
+        const staticRoot = resolveReviewStaticRoot({
+          cwd: process.cwd(),
+          moduleUrl: import.meta.url,
+          ...(process.env.S2S_REVIEW_STATIC_ROOT !== undefined
+            ? { envStaticRoot: process.env.S2S_REVIEW_STATIC_ROOT }
+            : {}),
+        });
+
         const handle = await startReviewServer(
           {
             projectRoot: resolvedProjectRoot,
             host,
             port,
+            staticRoot,
             ...(options.token !== undefined ? { token: options.token } : {}),
           },
           deps,
@@ -121,6 +132,7 @@ export function createReviewCommand(ctx: CommandContext): Command {
         console.log(`  Project: ${resolvedProjectRoot}`);
         console.log(`  URL:     http://${host}:${handle.port}`);
         console.log(`  Token:   ${handle.token}`);
+        console.log(`  Review:  http://${host}:${handle.port}/?token=${handle.token}`);
         console.log(`  Press Ctrl+C to stop`);
 
         // Keep process alive until SIGINT/SIGTERM

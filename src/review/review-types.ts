@@ -36,6 +36,16 @@ export interface ReviewServerConfig {
   readonly token: string;
   /** Server version identifier. */
   readonly version: string;
+  /**
+   * Absolute path to the static root directory for serving the React
+   * Review Board build (default: `web/dist`).
+   *
+   * If not provided, static serving is disabled — only API endpoints
+   * are available.
+   *
+   * M5-03
+   */
+  readonly staticRoot?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ Never include API keys, private scripts, local paths, downloaded user assets, or
 
 Only the latest development version is supported before the first public release.
 
-## Local Server Security Model (M4)
+## Local Server Security Model (M4–M5)
 
 ### Loopback binding
 
@@ -32,12 +32,20 @@ Mutating requests (POST, PUT, PATCH) must include an `Origin` header that matche
 
 ### Security headers
 
-All responses include:
+API responses include:
 
 - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: no-referrer`
 - `Cache-Control: no-store`
+
+Static file responses (M5-03) include a different CSP that allows the React SPA to function:
+
+- `Content-Security-Policy: default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'`
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: no-referrer` (prevents leaking `?token=` in the URL to third-party thumbnail hosts)
+- `Cache-Control: no-store` for HTML files; `public, max-age=31536000, immutable` for hashed assets
 
 For `405 Method Not Allowed` responses, an `Allow` header is included.
 
@@ -65,11 +73,50 @@ Unsupported types:
 
 ### Path traversal protection
 
+**Upload path traversal (M4):**
+
 - Filenames are server-generated (16-byte random hex + validated extension).
 - Client-provided filenames are stored in `originalFileName` for display only.
 - The `assets/<scene-id>/` directory is resolved server-side.
 - Symlink escapes are rejected by the asset writer.
 - The `relativePath` in the persisted project is always project-relative, never absolute.
+
+**Static serving path traversal (M5-03):**
+
+- Raw URL path must not contain `..` (catches literal traversal).
+- Decoded URL path must not contain `..` (catches `%2e%2e` encoded traversal).
+- Decoded URL path must not contain NUL or control characters.
+- Resolved path must remain within the static root (`path.resolve` boundary check).
+- Symlink escapes are rejected via `fs.realpath` (defense-in-depth).
+- If any check fails, the request is rejected with `400 invalid_request`.
+
+### Static file serving (M5-03)
+
+Since M5-03, the review server serves the built React Review Board from `web/dist` directly, without requiring a separate Vite dev server.
+
+**API priority:**
+
+- `/api/*` paths are NEVER handled by static serving.
+- API route matching runs first; only unmatched non-API paths fall through to static serving.
+- API 404/405/400 responses are unchanged.
+
+**SPA fallback:**
+
+- Non-API GET paths without a file extension fall back to `index.html` (client-side routing).
+- Paths with a file extension that don't exist return 404 (not index.html).
+- Only GET and HEAD methods are handled by static serving.
+
+**Missing build:**
+
+- If `web/dist/index.html` does not exist, `GET /` returns a 503 HTML page telling the user to run `pnpm web:build`.
+- The error page never includes absolute paths or sensitive information.
+- API endpoints remain fully functional.
+
+**MIME types:**
+
+- File extensions are mapped to Content-Type values via a fixed allowlist.
+- Unknown extensions default to `application/octet-stream`.
+- `X-Content-Type-Options: nosniff` is always set.
 
 ### Error handling
 

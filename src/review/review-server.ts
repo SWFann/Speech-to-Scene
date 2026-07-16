@@ -22,6 +22,14 @@
  * - Session token is generated at startup and returned to the CLI caller.
  * - Token is NOT exposed in GET /api/health or error responses.
  * - projectRoot is fixed at startup; clients cannot change it via query/body/header.
+ *
+ * M5-03: Static file serving for the React Review Board.
+ * - If `staticRoot` is provided in the config, non-API GET/HEAD paths are
+ *   served from the static root (default: `web/dist`).
+ * - API routes always take priority over static serving.
+ * - `/api/*` paths that don't match any API route still get API 404/405.
+ * - Non-API paths that don't match a file fall back to `index.html` (SPA).
+ * - Path traversal is blocked at multiple layers.
  */
 
 import http from "node:http";
@@ -53,6 +61,7 @@ import {
 } from "./request-security.js";
 import { ERROR_NOT_FOUND, ERROR_METHOD_NOT_ALLOWED, ERROR_INVALID_REQUEST } from "./http-errors.js";
 import { validateSessionToken } from "./security/session-token.js";
+import { isApiPath, serveStatic } from "./static-serving.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -157,6 +166,29 @@ function createRequestHandler(
           ERROR_METHOD_NOT_ALLOWED,
           `Method ${method} is not allowed for ${urlPath}`,
         );
+        return;
+      }
+
+      // M5-03: Static file serving for non-API paths.
+      //
+      // If staticRoot is configured and the path is NOT an API path,
+      // attempt to serve a static file (React Review Board). This includes:
+      // - GET / → index.html
+      // - GET /assets/* → bundled JS/CSS
+      // - GET /review → SPA fallback to index.html
+      // - Path traversal attempts → 400
+      // - Missing build → friendly error page
+      //
+      // API paths (/api/*) are NEVER handled by static serving — they
+      // always get API 404/405/400 responses.
+      if (config.staticRoot !== undefined && !isApiPath(urlPath)) {
+        serveStatic(req, res, config.staticRoot, method, urlPath).catch(() => {
+          if (!res.headersSent) {
+            sendInternalError(res);
+          } else {
+            res.destroy();
+          }
+        });
         return;
       }
 
@@ -273,6 +305,7 @@ export async function startReviewServer(
     port: config.port,
     token,
     version: config.version ?? SERVER_VERSION,
+    ...(config.staticRoot !== undefined ? { staticRoot: config.staticRoot } : {}),
   };
 
   const boundPortRef = { current: config.port };

@@ -1,7 +1,7 @@
 # AI Task and Audit Playbook
 
 > Purpose: help a fresh Codex or Claude conversation quickly understand how this project is being built, audited, and handed off.
-> Last updated: 2026-07-16.
+> Last updated: 2026-07-16 (M5-03 in progress).
 
 ## 1. Project Snapshot
 
@@ -50,7 +50,7 @@ Do not implement:
 - cloud accounts;
 - databases;
 - mobile apps;
-- React Review Board UI before M5.
+- React Review Board UI is now in scope as of M5.
 
 ## 2. Source of Truth Files
 
@@ -66,6 +66,12 @@ docs/ASSET_LICENSING.md
 docs/development/ENVIRONMENT.md
 docs/milestones/M4_IMPLEMENTATION_PLAN.md
 docs/milestones/M4_CLAUDE_TASK_PACKS.md
+web/src/App.tsx
+web/src/api/review-api.ts
+web/vite.config.ts
+src/review/static-serving.ts
+src/review/review-server.ts
+src/cli/commands/review-command.ts
 ```
 
 The persisted project schema is the single source of truth. Do not loosen the schema merely to make an API easier to implement.
@@ -243,6 +249,42 @@ P2 notes from audit:
 
 At the time this playbook was written, the working tree may contain uncommitted M4-04A and/or M4-04B changes. A new conversation must start with `git status --short`.
 
+### M5
+
+M5-00 established the React project scaffold:
+
+- `web/` directory with Vite + React 19 + TypeScript configuration.
+- `web/src/api/review-api.ts` — typed API client with session token handling.
+- `web/vite.config.ts` — Vite config with `/api` proxy to local review server.
+- `web/tsconfig.json` — separate tsconfig for the web project.
+- `package.json` scripts: `web:build`, `web:dev`, `web:preview`.
+- Typecheck includes `web/tsconfig.json`.
+
+M5-02 implemented the React Review Board UI:
+
+- `web/src/App.tsx` — main application component with full review workflow.
+- `web/src/components/` — TopBar, SceneList, SceneDetail, Inspector, ErrorView, ActionError, LocalAssetUpload.
+- Scene list with active scene selection.
+- Scene detail with candidate thumbnails, select/skip/search actions.
+- Local asset upload (PNG/JPEG) with provenance.
+- Rights acknowledgement conflict flow (409 → confirm dialog).
+- Session token input with URL `?token=` extraction and localStorage persistence.
+- Error handling with UI-safe messages (no token/path/stack leakage).
+- All API calls go through `ReviewApiClient` — React never accesses the filesystem directly.
+
+M5-03 added static serving + smoke + docs:
+
+- `src/review/static-serving.ts` — static file serving with multi-layer path traversal protection, MIME type mapping, SPA fallback, missing-build 503 page.
+- `src/review/review-server.ts` — integrated static serving after API route matching fails (API paths never enter static serving).
+- `src/cli/commands/review-command.ts` — passes `staticRoot` (defaults to `web/dist`), adds `Review:` URL line with `?token=`.
+- `src/review/review-types.ts` — `staticRoot` added to `ReviewServerConfig`.
+- `tests/unit/review-static.test.ts` — path traversal, MIME types, SPA fallback, missing build, API priority.
+- `tests/unit/dist-smoke-project.test.ts` — static serving smoke test (GET / returns HTML, API still works).
+- `package.json` — `build:all` script (`pnpm build && pnpm web:build`).
+- Documentation updates: README.md, PRIVACY.md, SECURITY.md.
+
+M5-03 status: implementation complete, pending Codex audit.
+
 ## 6. WSL and SSH Procedure
 
 Use WSL/Ubuntu2 as the authoritative environment.
@@ -335,7 +377,8 @@ WSL 工作目录：
 - M1：项目骨架、Schema、Repository、CLI 基础已完成
 - M2：script -> semantic scenes 已完成
 - M3：semantic scenes -> asset candidates 已完成
-- M4：local Review Server and Project API 正在分段实现
+- M4：local Review Server and Project API 已完成
+- M5：React Review Board UI 和静态服务正在实现
 
 Phase 1 范围：
 script -> semantic scenes -> asset candidates -> local review API
@@ -345,7 +388,7 @@ Phase 1 禁止扩张：
 - 不做 rendering / ASR / timeline alignment / live recording
 - 不做 AI media generation
 - 不做 cloud accounts / databases / mobile apps
-- 不做 React Review Board UI，除非任务明确进入 M5
+- 不做 React Review Board UI 扩展，除非任务明确要求（M5 已实现核心 UI）
 
 上一次 Codex 审计/项目状态：
 <粘贴最近一次相关审计结论，例如通过/不通过、P0/P1/P2、已知工作树状态、最后提交哈希>
@@ -354,7 +397,7 @@ Phase 1 禁止扩张：
 <明确说明只做什么>
 
 禁止事项：
-- 不做 React UI，除非任务明确进入 M5
+- 不做 React UI 扩展，除非任务明确要求（M5 已实现核心 UI）
 - 不做 rendering / ASR / timeline / live recording
 - 不做 AI media generation
 - 不做 cloud account / database / mobile app
@@ -708,25 +751,31 @@ Final commit report should include:
 - final `git status --short`;
 - checks that passed.
 
-## 14. M4 Remaining Task Cadence
+## 14. M4–M5 Task Cadence
 
-Current M4 cadence after M4-04A:
+M4 cadence (all completed and committed):
 
 ```text
-M4-04B -> Codex audit
-M4-05  -> Codex audit
-M4-06  -> Codex audit
-M4-07  -> Codex audit
-M4-08  -> final M4 audit, then commit/push if approved
+M4-04B -> Codex audit ✓
+M4-05  -> Codex audit ✓
+M4-06  -> Codex audit ✓
+M4-07  -> Codex audit ✓
+M4-08  -> final M4 audit ✓
+```
+
+M5 cadence:
+
+```text
+M5-00  -> React scaffold ✓ (committed)
+M5-02  -> Review Board UI ✓ (committed)
+M5-03  -> Static serving + smoke + docs -> Codex audit (pending)
+M5-04  -> final M5 audit, then commit/push if approved
 ```
 
 Recommended audit grouping:
 
-- M4-04B alone, because write HTTP routes are security-sensitive.
-- M4-05 alone, because scene search touches provider composition and persistence.
-- M4-06 alone, because review decisions affect project state and later upload behavior.
-- M4-07 alone, because local asset attachment touches filesystem safety.
-- M4-08 final gate, because it is documentation and smoke completeness.
+- M5-03 alone, because static serving touches path traversal security and SPA fallback.
+- M5-04 final gate, because it is documentation and smoke completeness.
 
 ## 15. M4-04B Known Requirements
 
