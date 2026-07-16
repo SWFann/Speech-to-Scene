@@ -104,6 +104,8 @@ export function createReviewCommand(ctx: CommandContext): Command {
           searchSceneAssets: searchSceneAssetsBound,
           selectCandidate: ctx.selectCandidate,
           skipScene: ctx.skipScene,
+          attachLocalAsset: ctx.attachLocalAsset,
+          assetWriter: ctx.assetWriter,
         };
         const handle = await startReviewServer(
           {

@@ -20,6 +20,13 @@ import type { RouteDefinition } from "./review-types.js";
 import type { ReviewServerDependencies } from "./review-types.js";
 import { sendSuccess, sendError, sendInternalError } from "./json-response.js";
 import { parseJsonBody } from "./json-body.js";
+import {
+  parseMultipartUpload,
+  validateMagicBytes,
+  sendMultipartError,
+  type MultipartParseResult,
+} from "./multipart-upload.js";
+import { safeFileName } from "../application/safe-filename.js";
 import type { ServerResponse } from "node:http";
 import { ERROR_INVALID_REQUEST } from "./http-errors.js";
 import { IdSchema, NonEmptyTrimmedStringSchema } from "../domain/schema-primitives.js";
@@ -169,6 +176,8 @@ export function createRoutes(config: {
       searchSceneAssets,
       selectCandidate,
       skipScene,
+      attachLocalAsset,
+      assetWriter,
     } = config.deps;
 
     // GET /api/project (requires session token)
@@ -429,6 +438,161 @@ export function createRoutes(config: {
       },
     });
 
+    // POST /api/scenes/:sceneId/local-asset (M4-07)
+    //
+    // Uploads a local image/video file and attaches it to a scene.
+    // The file is written to assets/<scene-id>/ with a server-generated
+    // safe filename. The scene's review state is updated to either
+    // local_asset_attached or candidate_selected.localAsset depending on
+    // the provenance and current review state.
+    //
+    // After the attachment persists, a fresh UI-safe project view is returned.
+    routes.push({
+      path: "/api/scenes/:sceneId/local-asset",
+      methods: ["POST"],
+      handler: async (req, res, params) => {
+        const sceneId = params.pathParams["sceneId"];
+
+        // Validate sceneId from path
+        const validSceneId = validateSceneId(sceneId ?? "");
+        if (!validSceneId) {
+          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+          return;
+        }
+
+        // Parse multipart/form-data body
+        const multipartResult: MultipartParseResult = await parseMultipartUpload(req, res);
+        if (!multipartResult.success) {
+          sendMultipartError(res, multipartResult);
+          return;
+        }
+
+        // Validate magic bytes
+        const magicResult = validateMagicBytes(multipartResult.file.buffer);
+        if (!magicResult.valid || !magicResult.mimeType || !magicResult.extension) {
+          sendError(
+            res,
+            400,
+            ERROR_INVALID_REQUEST,
+            "File content does not match any allowed type",
+            "Upload a valid PNG or JPEG image",
+          );
+          return;
+        }
+
+        // Three-layer allowlist: magic bytes + Content-Type + filename extension.
+        // Magic bytes are the ultimate source of truth. The multipart part
+        // Content-Type and the original filename extension must both agree
+        // with the magic byte detection.
+        const partContentType = multipartResult.file.contentType.toLowerCase();
+        if (partContentType !== magicResult.mimeType) {
+          sendError(
+            res,
+            400,
+            ERROR_INVALID_REQUEST,
+            "File Content-Type does not match file content",
+            `Expected ${magicResult.mimeType} based on file content`,
+          );
+          return;
+        }
+
+        // Validate the original filename extension against the magic byte result.
+        // .jpg and .jpeg both correspond to image/jpeg.
+        const originalName = multipartResult.file.originalFileName;
+        const lastDot = originalName.lastIndexOf(".");
+        if (lastDot === -1 || lastDot === originalName.length - 1) {
+          sendError(
+            res,
+            400,
+            ERROR_INVALID_REQUEST,
+            "Filename must have a valid extension",
+            "Use .png, .jpg, or .jpeg",
+          );
+          return;
+        }
+        const fileExt = originalName.slice(lastDot).toLowerCase();
+        const allowedExts = magicResult.mimeType === "image/png" ? [".png"] : [".jpg", ".jpeg"];
+        if (!allowedExts.includes(fileExt)) {
+          sendError(
+            res,
+            400,
+            ERROR_INVALID_REQUEST,
+            "Filename extension does not match file content",
+            `Expected ${allowedExts.join(" or ")} for ${magicResult.mimeType}`,
+          );
+          return;
+        }
+
+        // Sanitize original filename
+        const safeName = safeFileName(multipartResult.file.originalFileName);
+        const originalFileName = safeName ?? "upload";
+
+        // Parse provenance JSON if provided
+        let provenance: unknown = undefined;
+        if (multipartResult.provenance !== null) {
+          try {
+            provenance = JSON.parse(multipartResult.provenance);
+          } catch {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "provenance is not valid JSON");
+            return;
+          }
+
+          // Reject provenance containing projectRoot, sceneId, or relativePath
+          if (typeof provenance === "object" && provenance !== null && !Array.isArray(provenance)) {
+            const provenanceObj = provenance as Record<string, unknown>;
+            if (
+              "projectRoot" in provenanceObj ||
+              "sceneId" in provenanceObj ||
+              "relativePath" in provenanceObj
+            ) {
+              sendError(
+                res,
+                400,
+                ERROR_INVALID_REQUEST,
+                "provenance must not contain projectRoot, sceneId, or relativePath",
+              );
+              return;
+            }
+          }
+        }
+
+        // Parse note if provided
+        let note: string | undefined;
+        if (multipartResult.note !== null) {
+          const trimmed = multipartResult.note.trim();
+          if (trimmed.length > 0) {
+            note = trimmed;
+          }
+        }
+
+        // Build the use case input.
+        // projectRoot and sceneId come from server config / URL path — never
+        // from the request body.
+        const useCaseInput = {
+          projectRoot: config.projectRoot,
+          sceneId: validSceneId,
+          fileBuffer: multipartResult.file.buffer,
+          originalFileName,
+          mimeType: magicResult.mimeType,
+          extension: magicResult.extension,
+          ...(provenance !== undefined ? { provenance } : {}),
+          ...(note !== undefined ? { note } : {}),
+        };
+
+        try {
+          await attachLocalAsset(useCaseInput, {
+            repository,
+            assetWriter,
+          });
+          // Success: return fresh UI-safe view
+          const project = await getReviewProject(config.projectRoot, repository);
+          sendSuccess(res, 200, { project });
+        } catch (error) {
+          mapMutationError(error, res);
+        }
+      },
+    });
+
     // PUT /api/scenes/:sceneId/skip (M4-06)
     //
     // Marks a scene as skipped in the user's review decision.
@@ -559,6 +723,12 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
   // SceneNotFoundError → 404
   if (code === "scene_not_found") {
     sendError(res, 404, "not_found", "Scene not found", "Refresh the project and try again");
+    return;
+  }
+
+  // PathSafetyError (e.g., symlink escape, path traversal) → 400 invalid_request
+  if (code === "path_safety_error") {
+    sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid file or path");
     return;
   }
 

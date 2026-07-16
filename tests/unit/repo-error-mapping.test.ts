@@ -194,6 +194,11 @@ async function startServerWithRealRepo(
     selectCandidate: () =>
       Promise.reject(new Error("selectCandidate not configured for this test")),
     skipScene: () => Promise.reject(new Error("skipScene not configured for this test")),
+    attachLocalAsset: () =>
+      Promise.reject(new Error("attachLocalAsset not configured for this test")),
+    assetWriter: {
+      writeAsset: () => Promise.reject(new Error("assetWriter not configured")),
+    },
   };
   const handle = await startReviewServer({ projectRoot, host: "127.0.0.1", port: 0, token }, deps);
   servers.push({ handle });
@@ -332,6 +337,11 @@ describe("Unknown repository error → HTTP mapping", () => {
       selectCandidate: () =>
         Promise.reject(new Error("selectCandidate not configured for this test")),
       skipScene: () => Promise.reject(new Error("skipScene not configured for this test")),
+      attachLocalAsset: () =>
+        Promise.reject(new Error("attachLocalAsset not configured for this test")),
+      assetWriter: {
+        writeAsset: () => Promise.reject(new Error("assetWriter not configured")),
+      },
     };
     const handle = await startReviewServer(
       { projectRoot: "/fake/root", host: "127.0.0.1", port: 0, token: "test-token" },

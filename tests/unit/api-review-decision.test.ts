@@ -345,6 +345,12 @@ async function startTestServer(
     },
     selectCandidate,
     skipScene,
+    attachLocalAsset: () => {
+      throw new Error("attachLocalAsset not available in decision API tests");
+    },
+    assetWriter: {
+      writeAsset: () => Promise.reject(new Error("assetWriter not configured")),
+    },
   };
 
   const handle = await startReviewServer(

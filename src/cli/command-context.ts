@@ -22,6 +22,8 @@ import { updateScene } from "../application/update-scene.js";
 import { updateSceneQueries } from "../application/update-scene-queries.js";
 import { selectCandidate } from "../application/select-candidate.js";
 import { skipScene } from "../application/skip-scene.js";
+import { attachLocalAsset } from "../application/attach-local-asset.js";
+import { FsLocalAssetWriter } from "../infrastructure/local-asset-writer.js";
 import { formatError, formatUnexpectedError } from "./error-reporter.js";
 import type { Clock } from "../application/ports/clock.js";
 import type { IdGenerator } from "../application/ports/id-generator.js";
@@ -45,6 +47,8 @@ export interface CommandContext {
   updateSceneQueries: typeof updateSceneQueries;
   selectCandidate: typeof selectCandidate;
   skipScene: typeof skipScene;
+  attachLocalAsset: typeof attachLocalAsset;
+  assetWriter: FsLocalAssetWriter;
   formatError: (error: AppError) => string;
   formatUnexpectedError: (error: unknown) => string;
 }
@@ -70,6 +74,8 @@ export function createCommandContext(): CommandContext {
     updateSceneQueries,
     selectCandidate,
     skipScene,
+    attachLocalAsset,
+    assetWriter: new FsLocalAssetWriter(),
     formatError,
     formatUnexpectedError,
   };
