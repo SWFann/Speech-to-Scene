@@ -10,7 +10,7 @@ import {
 import type { ReviewProjectView } from "./types.js";
 import { TopBar } from "./components/TopBar.js";
 import { SceneList } from "./components/SceneList.js";
-import { SceneDetail, type BusyAction } from "./components/SceneDetail.js";
+import { SceneDetail, type BusyAction, type SearchProvider } from "./components/SceneDetail.js";
 import { Inspector } from "./components/Inspector.js";
 import { ErrorView } from "./components/ErrorView.js";
 import type { ActionErrorInfo } from "./components/ActionError.js";
@@ -237,24 +237,27 @@ export function App(): React.ReactElement {
   }, [client, activeSceneId, syncFromProject]);
 
   // --- Mutation: search scene ---
-  const handleSearchScene = useCallback(async () => {
-    if (!client || !activeSceneId) return;
-    setActionError(null);
-    setRightsWarning(null);
-    setBusyAction("search");
-    try {
-      const project = await client.searchScene(activeSceneId, {
-        provider: "fixture",
-        refresh: true,
-        limit: 12,
-      });
-      syncFromProject(project);
-    } catch (err) {
-      setActionError(toActionError(err));
-    } finally {
-      setBusyAction(null);
-    }
-  }, [client, activeSceneId, syncFromProject]);
+  const handleSearchScene = useCallback(
+    async (provider: SearchProvider) => {
+      if (!client || !activeSceneId) return;
+      setActionError(null);
+      setRightsWarning(null);
+      setBusyAction("search");
+      try {
+        const project = await client.searchScene(activeSceneId, {
+          provider,
+          refresh: true,
+          limit: 12,
+        });
+        syncFromProject(project);
+      } catch (err) {
+        setActionError(toActionError(err));
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [client, activeSceneId, syncFromProject],
+  );
 
   // --- Mutation: upload local asset ---
   const handleUploadLocalAsset = useCallback(
@@ -321,7 +324,7 @@ export function App(): React.ReactElement {
               onSelectCandidate={handleSelectCandidate}
               onSelectCandidateAction={(id) => void handleSelectCandidateAction(id)}
               onSkipScene={() => void handleSkipScene()}
-              onSearchScene={() => void handleSearchScene()}
+              onSearchScene={(provider) => void handleSearchScene(provider)}
               busyAction={busyAction}
               actionError={actionError}
               rightsWarning={

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Search, SkipForward, CheckCircle } from "lucide-react";
 
 import type { ReviewSceneView } from "../types.js";
@@ -7,13 +8,15 @@ import { RightsWarningDialog } from "./RightsWarningDialog.js";
 
 export type BusyAction = "select" | "skip" | "search" | "upload" | null;
 
+export type SearchProvider = "fixture" | "pexels";
+
 interface SceneDetailProps {
   scene: ReviewSceneView;
   selectedCandidateId: string | null;
   onSelectCandidate: (candidateId: string) => void;
   onSelectCandidateAction: (candidateId: string) => void;
   onSkipScene: () => void;
-  onSearchScene: () => void;
+  onSearchScene: (provider: SearchProvider) => void;
   busyAction: BusyAction;
   actionError: ActionErrorInfo | null;
   rightsWarning: { message: string; hint?: string } | null;
@@ -36,6 +39,7 @@ export function SceneDetail({
   onRightsCancel,
   onDismissError,
 }: SceneDetailProps): React.ReactElement {
+  const [searchProvider, setSearchProvider] = useState<SearchProvider>("pexels");
   const selectDisabled = !selectedCandidateId || busyAction !== null;
   const searchDisabled = busyAction !== null;
   const skipDisabled = busyAction !== null;
@@ -118,9 +122,23 @@ export function SceneDetail({
               <CheckCircle size={14} />
               {busyAction === "select" ? "选择中…" : "选择候选"}
             </button>
+            <div className="search-provider">
+              <label htmlFor="search-provider-select" className="search-provider-label">
+                素材源
+              </label>
+              <select
+                id="search-provider-select"
+                value={searchProvider}
+                onChange={(e) => setSearchProvider(e.target.value as SearchProvider)}
+                disabled={searchDisabled}
+              >
+                <option value="pexels">Pexels（真实图片）</option>
+                <option value="fixture">Fixture（测试桩）</option>
+              </select>
+            </div>
             <button
               className="btn"
-              onClick={onSearchScene}
+              onClick={() => onSearchScene(searchProvider)}
               disabled={searchDisabled}
               type="button"
               data-testid="search-scene-btn"
