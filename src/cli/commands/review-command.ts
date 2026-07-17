@@ -16,6 +16,8 @@
  */
 
 import { Command } from "commander";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import { type CommandContext } from "../command-context.js";
 import { AppError } from "../../shared/errors.js";
@@ -23,7 +25,17 @@ import { startReviewServer } from "../../review/review-server.js";
 import type { ReviewServerDependencies } from "../../review/review-types.js";
 import { searchSceneAssets } from "../../application/search-scene-assets.js";
 import type { SearchProjectAssetsResult } from "../../application/search-project-assets.js";
-import { createSearchProvider, getSearchCacheDir } from "../provider-factory.js";
+import { searchProjectAssets as searchProjectAssetsUseCase } from "../../application/search-project-assets.js";
+import { createProjectFromContent as createProjectFromContentUseCase } from "../../application/create-project-from-content.js";
+import { planProject as planProjectUseCase } from "../../application/plan-script.js";
+import type { Settings } from "../../application/ports/settings-store.js";
+import { FsSettingsStore } from "../../infrastructure/settings-store.js";
+import {
+  createSearchProvider,
+  getSearchCacheDir,
+  createPlannerProvider,
+  assetProviderEnvFromSettings,
+} from "../provider-factory.js";
 import { FileSearchCache } from "../../infrastructure/file-search-cache.js";
 import { readEnv } from "../../infrastructure/env.js";
 import { resolveReviewStaticRoot } from "../review-static-root.js";
@@ -60,7 +72,7 @@ export function createReviewCommand(ctx: CommandContext): Command {
     .argument("<project-directory>", "Path to the project directory")
     .option("--host <host>", "Host to bind to", "127.0.0.1")
     .option("--port <port>", "Port to listen on", "3210")
-    .option("--no-open", "Do not open a browser (default: do not open)")
+    .option("--no-open", "Do not open a browser (default: open)")
     .option("--token <token>", "Session token for mutating requests")
     .action(async (projectDirectory: string, options: ReviewCommandOptions) => {
       try {
@@ -77,16 +89,29 @@ export function createReviewCommand(ctx: CommandContext): Command {
         // Resolve project root to absolute path for validation
         const resolvedProjectRoot = projectDirectory;
 
-        // Validate project before starting server (P1-2)
-        // This ensures the project exists and passes full schema validation
-        // before we bind to any port.
-        await ctx.repository.load(resolvedProjectRoot);
+        // E1: ensure the workspace directory exists (one-click first run).
+        // The frontend creates the project via POST /api/project/create.
+        await fs.mkdir(resolvedProjectRoot, { recursive: true });
+
+        // Validate project before starting server (P1-2).
+        // For one-click flow, tolerate an empty workspace (no project yet) —
+        // the frontend LandingView will create it via POST /api/project/create.
+        try {
+          await ctx.repository.load(resolvedProjectRoot);
+        } catch {
+          console.log(
+            `  (no existing project at ${resolvedProjectRoot}; create one via the web UI)`,
+          );
+        }
+
+        // E1/E2: workspace-level settings store (<workspace>/.s2s/settings.json).
+        // projectRoot is <workspace>/default; workspace root is its parent.
+        const workspaceRoot = path.dirname(path.resolve(resolvedProjectRoot));
+        const settingsStore = new FsSettingsStore({
+          settingsPath: path.join(workspaceRoot, ".s2s", "settings.json"),
+        });
 
         // Start server with injected dependencies
-        //
-        // M4-05: searchSceneAssets is bound at this composition root with
-        // provider/cache factories. The HTTP layer calls the bound function
-        // without knowing about concrete infrastructure.
         const assetProviderEnv = readEnv().assetProvider;
         const searchSceneAssetsBound = (input: unknown): Promise<SearchProjectAssetsResult> =>
           searchSceneAssets(input, {
@@ -108,6 +133,74 @@ export function createReviewCommand(ctx: CommandContext): Command {
           skipScene: ctx.skipScene,
           attachLocalAsset: ctx.attachLocalAsset,
           assetWriter: ctx.assetWriter,
+
+          // E1: settings (workspace-level, settings.json priority over .env)
+          getSettings: async () => settingsStore.toView(await settingsStore.load()),
+          saveSettings: async (input: unknown) => {
+            const current = await settingsStore.load();
+            const merged = { ...current, ...(input as Record<string, unknown>) };
+            const clean = Object.fromEntries(
+              Object.entries(merged).filter(([, v]) => v !== undefined),
+            ) as unknown as Settings;
+            await settingsStore.save(clean);
+            return settingsStore.toView(clean);
+          },
+
+          // E1: create project from in-memory content bytes (frontend upload)
+          createProjectFromContent: async (input: unknown) =>
+            createProjectFromContentUseCase(
+              input as Parameters<typeof createProjectFromContentUseCase>[0],
+              ctx.clock,
+              ctx.idGenerator,
+              ctx.repository,
+              ctx.scaffolder,
+            ),
+
+          // E1/E2: plan project (planner provider from settings.json priority)
+          planProject: async (input: unknown) => {
+            const planInput = input as {
+              projectRoot: string;
+              provider: string;
+              maxScenes: number;
+              force: boolean;
+              dryRun: boolean;
+            };
+            const settings = await settingsStore.load();
+            const planner = await createPlannerProvider(planInput.provider, settings);
+            return planProjectUseCase(
+              planInput,
+              ctx.repository,
+              planner,
+              ctx.clock,
+              ctx.idGenerator,
+            );
+          },
+
+          // E1/E2: search all project assets (settings.json priority for keys)
+          searchProjectAssets: async (input: unknown) => {
+            const searchInput = input as {
+              projectRoot: string;
+              provider: string;
+              maxAssetsPerQuery: number;
+              refresh?: boolean;
+              dryRun?: boolean;
+            };
+            const settings = await settingsStore.load();
+            const provider = await createSearchProvider(
+              searchInput.provider,
+              assetProviderEnvFromSettings(settings),
+            );
+            const cache = new FileSearchCache({
+              cacheDir: getSearchCacheDir(searchInput.projectRoot, searchInput.provider),
+            });
+            return searchProjectAssetsUseCase(
+              searchInput,
+              ctx.repository,
+              provider,
+              cache,
+              () => new Date(),
+            );
+          },
         };
         const staticRoot = resolveReviewStaticRoot({
           cwd: process.cwd(),
@@ -134,6 +227,25 @@ export function createReviewCommand(ctx: CommandContext): Command {
         console.log(`  Token:   ${handle.token}`);
         console.log(`  Review:  http://${host}:${handle.port}/?token=${handle.token}`);
         console.log(`  Press Ctrl+C to stop`);
+
+        // E1: open browser to the review URL (token auto-included)
+        if (options.open) {
+          const reviewUrl = `http://${host}:${handle.port}/?token=${handle.token}`;
+          const cmd =
+            process.platform === "darwin"
+              ? `open "${reviewUrl}"`
+              : process.platform === "win32"
+                ? `start "" "${reviewUrl}"`
+                : `xdg-open "${reviewUrl}"`;
+          try {
+            const { exec } = await import("node:child_process");
+            exec(cmd, () => {
+              /* best-effort; ignore errors */
+            });
+          } catch {
+            /* best-effort; user can copy the URL from the console */
+          }
+        }
 
         // Keep process alive until SIGINT/SIGTERM
         // The server keeps listening; signals trigger graceful shutdown.

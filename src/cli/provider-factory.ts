@@ -14,7 +14,10 @@
 import type { SearchProvider } from "../application/search-project-assets.js";
 import type { AssetProviderEnvConfig } from "../infrastructure/env.js";
 import type { PexelsAssetProviderOptions } from "../providers/pexels/pexels-asset-provider.js";
-import { ProjectNotPlannedError } from "../shared/errors.js";
+import type { ScriptPlanner } from "../application/ports/script-planner.js";
+import type { Settings } from "../application/ports/settings-store.js";
+import { readPlannerEnv, readAssetProviderEnv } from "../infrastructure/env.js";
+import { ProjectNotPlannedError, InvalidArgumentError } from "../shared/errors.js";
 
 // ---------------------------------------------------------------------------
 // Provider factory
@@ -94,4 +97,83 @@ export async function createSearchProvider(
 export function getSearchCacheDir(projectRoot: string, providerName: string): string {
   const resolved = projectRoot.replace(/\/$/, "");
   return `${resolved}/cache/search/${providerName}`;
+}
+
+// ---------------------------------------------------------------------------
+// Planner provider factory (E1/E2: settings.json priority over .env)
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a planner provider by name, with settings.json taking priority over
+ * .env for API keys. Used by the Review Server's planProject endpoint.
+ *
+ * @param name - Planner provider name: "fixture", "deepseek", or "stepfun".
+ * @param settings - Loaded settings (settings.json). Keys take priority over .env.
+ */
+export async function createPlannerProvider(name: string, settings: Settings): Promise<ScriptPlanner> {
+  const env = readPlannerEnv();
+  switch (name) {
+    case "fixture": {
+      const { FixtureScriptPlanner } = await import("../planner/fixture-script-planner.js");
+      return new FixtureScriptPlanner();
+    }
+    case "deepseek": {
+      const apiKey = settings.deepseekApiKey ?? env.deepseekApiKey;
+      const model = settings.deepseekModel ?? env.deepseekModel;
+      if (!apiKey) {
+        throw new InvalidArgumentError(
+          "DeepSeek API key is required",
+          "在设置页配置 DeepSeek API Key",
+        );
+      }
+      if (!model) {
+        throw new InvalidArgumentError(
+          "DeepSeek model is required",
+          "在设置页配置 DeepSeek 模型",
+        );
+      }
+      const baseUrl = settings.deepseekBaseUrl ?? env.deepseekBaseUrl;
+      const { DeepSeekScriptPlanner } = await import("../planner/deepseek-script-planner.js");
+      return new DeepSeekScriptPlanner({
+        apiKey,
+        model,
+        ...(baseUrl ? { baseUrl } : {}),
+      });
+    }
+    case "stepfun": {
+      const apiKey = settings.stepApiKey ?? env.stepApiKey;
+      if (!apiKey) {
+        throw new InvalidArgumentError(
+          "StepFun API key is required",
+          "在设置页配置 StepFun API Key",
+        );
+      }
+      const model = settings.stepModel ?? env.stepModel;
+      const baseUrl = settings.stepBaseUrl ?? env.stepBaseUrl;
+      const { StepFunScriptPlanner } = await import("../planner/stepfun-script-planner.js");
+      return new StepFunScriptPlanner({
+        apiKey,
+        ...(model ? { model } : {}),
+        ...(baseUrl ? { baseUrl } : {}),
+      });
+    }
+    default:
+      throw new InvalidArgumentError(
+        `Unknown planner provider: ${name}`,
+        `不支持的 planner：${name}，可选 fixture/deepseek/stepfun`,
+      );
+  }
+}
+
+/**
+ * Builds an AssetProviderEnvConfig from settings (priority) + .env (fallback).
+ * Used by the Review Server's searchProjectAssets endpoint.
+ */
+export function assetProviderEnvFromSettings(settings: Settings): AssetProviderEnvConfig {
+  const env = readAssetProviderEnv();
+  return {
+    pexelsApiKey: settings.pexelsApiKey ?? env.pexelsApiKey,
+    pexelsBaseUrl: settings.pexelsBaseUrl ?? env.pexelsBaseUrl,
+    pexelsVideoBaseUrl: settings.pexelsVideoBaseUrl ?? env.pexelsVideoBaseUrl,
+  };
 }
