@@ -123,6 +123,7 @@ export function App(): React.ReactElement {
   } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showLanding, setShowLanding] = useState(false);
+  const [flowStep, setFlowStep] = useState<string | null>(null);
 
   // Set initial active scene when project loads
   useEffect(() => {
@@ -275,6 +276,7 @@ export function App(): React.ReactElement {
       if (!client) return;
       setActionError(null);
       setBusyAction("search");
+      setFlowStep("创建项目中…");
       try {
         const createInput: {
           content: string;
@@ -298,6 +300,7 @@ export function App(): React.ReactElement {
         } catch {
           /* fall back to fixture */
         }
+        setFlowStep("正在用 LLM 切片成场景…");
         await client.planProject({ provider: plannerProvider, maxScenes: 12, force: true });
         // Search: prefer pexels if key configured, else fixture.
         let searchProvider: "fixture" | "pexels" = "fixture";
@@ -307,6 +310,7 @@ export function App(): React.ReactElement {
         } catch {
           /* fall back to fixture */
         }
+        setFlowStep("正在搜索素材候选…");
         const project = await client.searchProject({ provider: searchProvider, limit: 12 });
         syncFromProject(project);
         setShowLanding(false);
@@ -314,6 +318,7 @@ export function App(): React.ReactElement {
         setActionError(toActionError(err));
       } finally {
         setBusyAction(null);
+        setFlowStep(null);
       }
     },
     [client, syncFromProject],
@@ -366,6 +371,7 @@ export function App(): React.ReactElement {
           <LandingView
             onCreate={(input) => void handleCreate(input)}
             busy={busyAction !== null}
+            flowStep={flowStep}
             error={actionError}
           />
         </main>
@@ -403,7 +409,18 @@ export function App(): React.ReactElement {
 
   return (
     <main className="app">
-      <TopBar project={project} error={null} onSettings={() => setShowSettings(true)} />
+      <TopBar
+        project={project}
+        error={null}
+        onSettings={() => setShowSettings(true)}
+        onReset={() => {
+          if (
+            window.confirm("重新上传文稿会覆盖当前项目（现有审核决策将丢失），确定继续？")
+          ) {
+            setShowLanding(true);
+          }
+        }}
+      />
       <section className="layout">
         <SceneList
           scenes={project.scenes}

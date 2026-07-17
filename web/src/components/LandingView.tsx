@@ -4,10 +4,12 @@ import { FileText, Sparkles } from "lucide-react";
 interface LandingViewProps {
   onCreate: (input: { content: string; fileName?: string; title?: string }) => void;
   busy: boolean;
+  /** Current one-click flow step label, or null when idle. */
+  flowStep: string | null;
   error: { message: string; hint?: string } | null;
 }
 
-export function LandingView({ onCreate, busy, error }: LandingViewProps): React.ReactElement {
+export function LandingView({ onCreate, busy, flowStep, error }: LandingViewProps): React.ReactElement {
   const [content, setContent] = useState("");
   const [fileName, setFileName] = useState("script.md");
   const [title, setTitle] = useState("");
@@ -28,6 +30,12 @@ export function LandingView({ onCreate, busy, error }: LandingViewProps): React.
         <h1>Speech-to-Scene</h1>
         <p>上传或粘贴口播文稿，一键生成视觉场景与素材候选</p>
       </div>
+      {flowStep && (
+        <div className="flow-step">
+          <span className="spinner" />
+          <span>{flowStep}</span>
+        </div>
+      )}
       {error && (
         <div className="action-error">
           <strong>{error.message}</strong>
