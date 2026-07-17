@@ -349,13 +349,13 @@ export function createRoutes(config: {
               provider: parsed.data.provider,
               maxScenes: parsed.data.maxScenes,
               force: parsed.data.force,
-              dryRun: false,
-            });
-            const project = await getReviewProject(config.projectRoot, repository);
-            sendSuccess(res, 200, { project });
-          } catch (error) {
-            mapMutationError(error, res);
-          }
+            dryRun: false,
+          });
+          const project = await getReviewProject(config.projectRoot, repository);
+          sendSuccess(res, 200, { project });
+        } catch (error) {
+          mapMutationError(error, res);
+        }
         },
       });
 
@@ -975,6 +975,23 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
   // Covers: project not planned, scene not found (legacy), provider unavailable.
   if (code === "project_not_planned") {
     sendError(res, 409, "conflict", "Conflict with current project state", undefined);
+    return;
+  }
+
+  // Planner errors (LLM output quality: bad JSON, validation, anchor overlap)
+  // → 422 so the frontend can show a retry-friendly message.
+  if (
+    code === "planner_error" ||
+    code === "planner_output_error" ||
+    code === "planner_validation_error"
+  ) {
+    sendError(
+      res,
+      422,
+      "planner_error",
+      "LLM 规划输出不符合要求",
+      "请重试一键生成（LLM 输出有随机性），或换更清晰的文稿；持续失败可切换为 DeepSeek 提供方",
+    );
     return;
   }
 

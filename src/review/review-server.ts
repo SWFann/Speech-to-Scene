@@ -74,7 +74,7 @@ export const SERVER_VERSION = "s2s-review-server/0.1";
 // Timeouts
 // ---------------------------------------------------------------------------
 
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 300_000;
 const HEADERS_TIMEOUT_MS = 15_000;
 const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 

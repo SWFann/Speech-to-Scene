@@ -138,7 +138,7 @@ describe("ReviewApiClient", () => {
       const apiErr = err as ReviewApiError;
       expect(apiErr.code).toBe("network_error");
       expect(apiErr.message).toContain("无法连接到本地 Review Server");
-      expect(apiErr.hint).toContain("pnpm s2s review");
+      expect(apiErr.hint).toContain("pnpm start");
     }
   });
 
