@@ -229,7 +229,7 @@ export class ReviewApiClient {
         "无法连接到本地 Review Server，请确认服务器已启动",
         "network_error",
         0,
-        "运行 pnpm s2s review <project> --no-open 启动服务器",
+        "运行 pnpm start 启动服务器",
       );
     }
     return this.handleResponse<HealthApiResponse>(response);
@@ -251,7 +251,7 @@ export class ReviewApiClient {
         "无法连接到本地 Review Server，请确认服务器已启动",
         "network_error",
         0,
-        "运行 pnpm s2s review <project> --no-open 启动服务器",
+        "运行 pnpm start 启动服务器",
       );
     }
 
@@ -290,7 +290,7 @@ export class ReviewApiClient {
         "无法连接到本地 Review Server，请确认服务器已启动",
         "network_error",
         0,
-        "运行 pnpm s2s review <project> --no-open 启动服务器",
+        "运行 pnpm start 启动服务器",
       );
     }
 
@@ -391,7 +391,7 @@ export class ReviewApiClient {
         "无法连接到本地 Review Server，请确认服务器已启动",
         "network_error",
         0,
-        "运行 pnpm s2s review <project> --no-open 启动服务器",
+        "运行 pnpm start 启动服务器",
       );
     }
 
