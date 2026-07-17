@@ -17,6 +17,9 @@ import type { SkipSceneDeps } from "../application/skip-scene.js";
 import type { AttachLocalAssetDeps } from "../application/attach-local-asset.js";
 import type { SearchProjectAssetsResult } from "../application/search-project-assets.js";
 import type { SpeechToSceneProject } from "../domain/project-schema.js";
+import type { SettingsView } from "../application/ports/settings-store.js";
+import type { CreateProjectResult } from "../application/create-project.js";
+import type { PlanProjectResult } from "../application/plan-script.js";
 
 // ---------------------------------------------------------------------------
 // Server configuration
@@ -99,6 +102,17 @@ export interface ReviewServerDependencies {
     input: unknown,
     deps: AttachLocalAssetDeps,
   ) => Promise<SpeechToSceneProject>;
+
+  /** Application: load settings (desensitized view). Wired in E1. */
+  readonly getSettings?: () => Promise<SettingsView>;
+  /** Application: save settings (merged, returns desensitized view). Wired in E1. */
+  readonly saveSettings?: (input: unknown) => Promise<SettingsView>;
+  /** Application: create project from in-memory content bytes. Wired in E1. */
+  readonly createProjectFromContent?: (input: unknown) => Promise<CreateProjectResult>;
+  /** Application: plan project (slice script into scenes). Wired in E1. */
+  readonly planProject?: (input: unknown) => Promise<PlanProjectResult>;
+  /** Application: search all project assets (whole-project search). Wired in E1. */
+  readonly searchProjectAssets?: (input: unknown) => Promise<SearchProjectAssetsResult>;
 }
 
 // ---------------------------------------------------------------------------

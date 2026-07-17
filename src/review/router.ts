@@ -144,6 +144,25 @@ function validateSceneId(raw: string): string | null {
  *   This is needed because the port may be 0 at creation time (OS-assigned).
  * @param deps - Injected dependencies (repository, application use cases).
  */
+/**
+ * Strict schema for PUT /api/settings body.
+ *
+ * Only known fields are accepted; unknown top-level fields are rejected.
+ * Keys are optional strings (empty = unset).
+ */
+const SaveSettingsBodySchema = z.strictObject({
+  plannerProvider: z.enum(["fixture", "deepseek", "stepfun"]).optional(),
+  deepseekApiKey: z.string().min(1).optional(),
+  deepseekBaseUrl: z.string().url().optional(),
+  deepseekModel: z.string().min(1).optional(),
+  stepApiKey: z.string().min(1).optional(),
+  stepBaseUrl: z.string().url().optional(),
+  stepModel: z.string().min(1).optional(),
+  pexelsApiKey: z.string().min(1).optional(),
+  pexelsBaseUrl: z.string().url().optional(),
+  pexelsVideoBaseUrl: z.string().url().optional(),
+});
+
 export function createRoutes(config: {
   readonly projectRoot: string;
   readonly host: string;
@@ -178,7 +197,56 @@ export function createRoutes(config: {
       skipScene,
       attachLocalAsset,
       assetWriter,
+      getSettings,
+      saveSettings,
     } = config.deps;
+
+    // Settings routes: only register when getSettings/saveSettings are wired (E1)
+    if (getSettings && saveSettings) {
+      // GET /api/settings (desensitized view, no plaintext keys)
+      routes.push({
+        path: "/api/settings",
+        methods: ["GET"],
+        handler: async (_req, res) => {
+          try {
+            const view = await getSettings();
+            sendSuccess(res, 200, { settings: view });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+
+      // PUT /api/settings (persist API keys to workspace .s2s/settings.json)
+      routes.push({
+        path: "/api/settings",
+        methods: ["PUT"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = SaveSettingsBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid settings body");
+            return;
+          }
+          try {
+            const view = await saveSettings(parsed.data);
+            sendSuccess(res, 200, { settings: view });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
 
     // GET /api/project (requires session token)
     routes.push({
