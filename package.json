@@ -20,6 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "build:all": "pnpm build && pnpm web:build",
+    "start": "pnpm build:all && node dist/cli/index.js review ./workspace/default",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"tests/**/*.tsx\" \"web/**/*.ts\" \"web/**/*.tsx\" \"web/**/*.css\" \"docs/**/*.md\" \".github/**/*.yml\" \"catalog/**/*.yaml\" \"*.{json,js,md,yaml}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"tests/**/*.tsx\" \"web/**/*.ts\" \"web/**/*.tsx\" \"web/**/*.css\" \"docs/**/*.md\" \".github/**/*.yml\" \"catalog/**/*.yaml\" \"*.{json,js,md,yaml}\"",
