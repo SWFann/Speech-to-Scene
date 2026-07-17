@@ -223,3 +223,17 @@ export interface ApiErrorResponse {
     readonly hint?: string;
   };
 }
+
+/** Desensitized settings view (no plaintext keys). Mirrors backend SettingsView. */
+export interface SettingsView {
+  readonly plannerProvider: string;
+  readonly hasDeepseekKey: boolean;
+  readonly hasStepKey: boolean;
+  readonly hasPexelsKey: boolean;
+  readonly deepseekBaseUrl: string;
+  readonly deepseekModel: string;
+  readonly stepBaseUrl: string;
+  readonly stepModel: string;
+  readonly pexelsBaseUrl: string;
+  readonly pexelsVideoBaseUrl: string;
+}

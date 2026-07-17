@@ -17,6 +17,7 @@ import type {
   ApiErrorResponse,
   ReviewProjectView,
   ReviewAssetRightsView,
+  SettingsView,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -396,6 +397,107 @@ export class ReviewApiClient {
 
     const result = await this.handleResponse<ProjectApiResponse>(response);
     return result.project;
+  }
+
+  // ---- F1: one-click project lifecycle + settings ----
+
+  /**
+   * POST /api/project/create — create project from uploaded text content.
+   */
+  async createProject(input: {
+    content: string;
+    fileName?: string;
+    title?: string;
+    language?: "zh-CN" | "en-US";
+    aspectRatio?: "9:16" | "16:9" | "1:1";
+    style?: "knowledge" | "story" | "commentary";
+    intendedUse?: "commercial_capable" | "noncommercial" | "editorial";
+    willModify?: boolean;
+    force?: boolean;
+  }): Promise<ReviewProjectView> {
+    const body: Record<string, unknown> = { content: input.content };
+    if (input.fileName !== undefined) body.fileName = input.fileName;
+    if (input.title !== undefined) body.title = input.title;
+    if (input.language !== undefined) body.language = input.language;
+    if (input.aspectRatio !== undefined) body.aspectRatio = input.aspectRatio;
+    if (input.style !== undefined) body.style = input.style;
+    if (input.intendedUse !== undefined) body.intendedUse = input.intendedUse;
+    if (input.willModify !== undefined) body.willModify = input.willModify;
+    if (input.force !== undefined) body.force = input.force;
+    return this.jsonMutation("/api/project/create", "POST", body);
+  }
+
+  /**
+   * POST /api/project/plan — slice script into scenes via planner.
+   */
+  async planProject(input: {
+    provider: "fixture" | "deepseek" | "stepfun";
+    maxScenes?: number;
+    force?: boolean;
+  }): Promise<ReviewProjectView> {
+    const body: Record<string, unknown> = { provider: input.provider };
+    if (input.maxScenes !== undefined) body.maxScenes = input.maxScenes;
+    if (input.force !== undefined) body.force = input.force;
+    return this.jsonMutation("/api/project/plan", "POST", body);
+  }
+
+  /**
+   * POST /api/project/search — search assets for all scenes.
+   */
+  async searchProject(input: {
+    provider: "fixture" | "pexels";
+    refresh?: boolean;
+    limit?: number;
+  }): Promise<ReviewProjectView> {
+    const body: Record<string, unknown> = { provider: input.provider };
+    if (input.refresh !== undefined) body.refresh = input.refresh;
+    if (input.limit !== undefined) body.limit = input.limit;
+    return this.jsonMutation("/api/project/search", "POST", body);
+  }
+
+  /**
+   * GET /api/settings — load desensitized settings view.
+   */
+  async getSettings(): Promise<SettingsView> {
+    let response: Response;
+    try {
+      response = await fetch(this.buildUrl("/api/settings"), {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+    } catch {
+      throw new ReviewApiError(
+        "无法连接到本地 Review Server，请确认服务器已启动",
+        "network_error",
+        0,
+        "运行 pnpm start 启动服务器",
+      );
+    }
+    const result = await this.handleResponse<{ settings: SettingsView }>(response);
+    return result.settings;
+  }
+
+  /**
+   * PUT /api/settings — persist API keys to workspace .s2s/settings.json.
+   */
+  async saveSettings(input: Record<string, unknown>): Promise<SettingsView> {
+    let response: Response;
+    try {
+      response = await fetch(this.buildUrl("/api/settings"), {
+        method: "PUT",
+        headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+    } catch {
+      throw new ReviewApiError(
+        "无法连接到本地 Review Server，请确认服务器已启动",
+        "network_error",
+        0,
+        "运行 pnpm start 启动服务器",
+      );
+    }
+    const result = await this.handleResponse<{ settings: SettingsView }>(response);
+    return result.settings;
   }
 }
 
