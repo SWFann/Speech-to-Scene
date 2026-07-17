@@ -163,6 +163,33 @@ const SaveSettingsBodySchema = z.strictObject({
   pexelsVideoBaseUrl: z.string().url().optional(),
 });
 
+/** Body schema for POST /api/project/create. */
+const CreateProjectBodySchema = z.strictObject({
+  content: z.string().min(1),
+  fileName: z.string().min(1).optional(),
+  title: z.string().optional(),
+  language: z.enum(["zh-CN", "en-US"]).optional(),
+  aspectRatio: z.enum(["9:16", "16:9", "1:1"]).optional(),
+  style: z.enum(["knowledge", "story", "commentary"]).optional(),
+  intendedUse: z.enum(["commercial_capable", "noncommercial", "editorial"]).optional(),
+  willModify: z.boolean().optional(),
+  force: z.boolean().optional().default(false),
+});
+
+/** Body schema for POST /api/project/plan. */
+const PlanProjectBodySchema = z.strictObject({
+  provider: z.enum(["fixture", "deepseek", "stepfun"]),
+  maxScenes: z.number().int().min(1).max(50).optional().default(12),
+  force: z.boolean().optional().default(false),
+});
+
+/** Body schema for POST /api/project/search. */
+const SearchProjectBodySchema = z.strictObject({
+  provider: z.enum(["fixture", "pexels"]),
+  refresh: z.boolean().optional().default(false),
+  limit: z.number().int().min(1).max(50).optional().default(12),
+});
+
 export function createRoutes(config: {
   readonly projectRoot: string;
   readonly host: string;
@@ -199,6 +226,9 @@ export function createRoutes(config: {
       assetWriter,
       getSettings,
       saveSettings,
+      createProjectFromContent,
+      planProject,
+      searchProjectAssets,
     } = config.deps;
 
     // Settings routes: only register when getSettings/saveSettings are wired (E1)
@@ -241,6 +271,124 @@ export function createRoutes(config: {
           try {
             const view = await saveSettings(parsed.data);
             sendSuccess(res, 200, { settings: view });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
+
+    // Project lifecycle routes: create / plan / search (whole-project)
+    if (createProjectFromContent && planProject && searchProjectAssets) {
+      // POST /api/project/create — create project from uploaded text content
+      routes.push({
+        path: "/api/project/create",
+        methods: ["POST"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = CreateProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid project create body");
+            return;
+          }
+          try {
+            await createProjectFromContent({
+              projectDirectory: config.projectRoot,
+              content: new TextEncoder().encode(parsed.data.content),
+              originalFileName: parsed.data.fileName ?? "script.md",
+              title: parsed.data.title ?? "",
+              language: parsed.data.language ?? "zh-CN",
+              aspectRatio: parsed.data.aspectRatio ?? "9:16",
+              style: parsed.data.style ?? "knowledge",
+              intendedUse: parsed.data.intendedUse ?? "commercial_capable",
+              willModify: parsed.data.willModify ?? true,
+              force: parsed.data.force,
+            });
+            const project = await getReviewProject(config.projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+
+      // POST /api/project/plan — slice script into scenes via planner
+      routes.push({
+        path: "/api/project/plan",
+        methods: ["POST"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = PlanProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid plan body");
+            return;
+          }
+          try {
+            await planProject({
+              projectRoot: config.projectRoot,
+              provider: parsed.data.provider,
+              maxScenes: parsed.data.maxScenes,
+              force: parsed.data.force,
+              dryRun: false,
+            });
+            const project = await getReviewProject(config.projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+
+      // POST /api/project/search — search assets for all scenes
+      routes.push({
+        path: "/api/project/search",
+        methods: ["POST"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = SearchProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid search body");
+            return;
+          }
+          try {
+            await searchProjectAssets({
+              projectRoot: config.projectRoot,
+              provider: parsed.data.provider,
+              maxAssetsPerQuery: parsed.data.limit,
+              refresh: parsed.data.refresh,
+            });
+            const project = await getReviewProject(config.projectRoot, repository);
+            sendSuccess(res, 200, { project });
           } catch (error) {
             mapMutationError(error, res);
           }
@@ -803,6 +951,12 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
   // ProjectConflictError → 409 conflict
   if (code === "project_conflict") {
     sendError(res, 409, "conflict", "Conflict with current project state", undefined);
+    return;
+  }
+
+  // ProjectAlreadyExistsError → 409 conflict (create with force=false)
+  if (code === "project_already_exists") {
+    sendError(res, 409, "conflict", "Project already exists", "Retry with force=true to overwrite");
     return;
   }
 

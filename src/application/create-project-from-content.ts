@@ -34,6 +34,8 @@ export interface CreateProjectFromContentInput {
   readonly style: "knowledge" | "story" | "commentary";
   readonly intendedUse: "commercial_capable" | "noncommercial" | "editorial";
   readonly willModify: boolean;
+  /** If true, overwrite an existing project at the same directory. */
+  readonly force?: boolean;
 }
 
 export type CreateProjectFromContentResult = {
@@ -76,7 +78,12 @@ export async function createProjectFromContent(
   const sentinelToken = idGenerator.temporaryId();
 
   if (await repository.exists(resolvedProjectRoot)) {
-    throw new ProjectAlreadyExistsError(resolvedProjectRoot);
+    if (!input.force) {
+      throw new ProjectAlreadyExistsError(resolvedProjectRoot);
+    }
+    // force=true: remove the existing project dir before recreating.
+    // fs.rm is already used in this layer for failure cleanup.
+    await fs.rm(resolvedProjectRoot, { recursive: true, force: true });
   }
 
   const initialProject = SpeechToSceneProjectSchema.parse({
