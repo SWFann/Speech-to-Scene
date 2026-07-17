@@ -5,9 +5,10 @@ import type { ReviewProjectView } from "../types.js";
 interface TopBarProps {
   project: ReviewProjectView | null;
   error: string | null;
+  onSettings?: () => void;
 }
 
-export function TopBar({ project, error }: TopBarProps): React.ReactElement {
+export function TopBar({ project, error, onSettings }: TopBarProps): React.ReactElement {
   const title = project?.project.title ?? "Speech-to-Scene";
   const sceneCount = project?.sceneCount ?? 0;
   const producingCount = project?.producingSceneCount ?? 0;
@@ -40,6 +41,12 @@ export function TopBar({ project, error }: TopBarProps): React.ReactElement {
         )}
       </div>
       <div className="actions">
+        {onSettings && (
+          <button className="btn" type="button" onClick={onSettings} title="配置 API Key">
+            <Settings size={14} />
+            设置
+          </button>
+        )}
         <button className="btn" disabled title="下一任务接入">
           <Settings size={14} />
           验证项目

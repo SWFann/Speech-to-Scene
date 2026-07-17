@@ -12,7 +12,10 @@ import { TopBar } from "./components/TopBar.js";
 import { SceneList } from "./components/SceneList.js";
 import { SceneDetail, type BusyAction, type SearchProvider } from "./components/SceneDetail.js";
 import { Inspector } from "./components/Inspector.js";
+import { Settings } from "lucide-react";
 import { ErrorView } from "./components/ErrorView.js";
+import { LandingView } from "./components/LandingView.js";
+import { SettingsPanel } from "./components/SettingsPanel.js";
 import type { ActionErrorInfo } from "./components/ActionError.js";
 import type { UploadProvenance } from "./components/LocalAssetUpload.js";
 
@@ -82,6 +85,11 @@ export function App(): React.ReactElement {
       setState({ kind: "success", project });
     } catch (err) {
       if (err instanceof ReviewApiError) {
+        // No project yet → show LandingView so the user can upload a script.
+        if (err.code === "not_found") {
+          setShowLanding(true);
+          return;
+        }
         setState({
           kind: "error",
           message: err.message,
@@ -113,6 +121,8 @@ export function App(): React.ReactElement {
     candidateId: string;
     sceneId: string;
   } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showLanding, setShowLanding] = useState(false);
 
   // Set initial active scene when project loads
   useEffect(() => {
@@ -259,6 +269,56 @@ export function App(): React.ReactElement {
     [client, activeSceneId, syncFromProject],
   );
 
+  // --- F4: one-click create → plan → search ---
+  const handleCreate = useCallback(
+    async (input: { content: string; fileName?: string; title?: string }) => {
+      if (!client) return;
+      setActionError(null);
+      setBusyAction("search");
+      try {
+        const createInput: {
+          content: string;
+          force: boolean;
+          fileName?: string;
+          title?: string;
+        } = { content: input.content, force: true };
+        if (input.fileName !== undefined) createInput.fileName = input.fileName;
+        if (input.title !== undefined) createInput.title = input.title;
+        await client.createProject(createInput);
+        // Planner: prefer settings, default fixture (no key needed).
+        let plannerProvider: "fixture" | "deepseek" | "stepfun" = "fixture";
+        try {
+          const settings = await client.getSettings();
+          if (
+            settings.plannerProvider === "deepseek" ||
+            settings.plannerProvider === "stepfun"
+          ) {
+            plannerProvider = settings.plannerProvider;
+          }
+        } catch {
+          /* fall back to fixture */
+        }
+        await client.planProject({ provider: plannerProvider, maxScenes: 12, force: true });
+        // Search: prefer pexels if key configured, else fixture.
+        let searchProvider: "fixture" | "pexels" = "fixture";
+        try {
+          const settings = await client.getSettings();
+          if (settings.hasPexelsKey) searchProvider = "pexels";
+        } catch {
+          /* fall back to fixture */
+        }
+        const project = await client.searchProject({ provider: searchProvider, limit: 12 });
+        syncFromProject(project);
+        setShowLanding(false);
+      } catch (err) {
+        setActionError(toActionError(err));
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [client, syncFromProject],
+  );
+
   // --- Mutation: upload local asset ---
   const handleUploadLocalAsset = useCallback(
     async (input: { file: File; provenance: UploadProvenance }) => {
@@ -281,6 +341,40 @@ export function App(): React.ReactElement {
   const handleDismissError = useCallback(() => {
     setActionError(null);
   }, []);
+
+  if (showLanding) {
+    return (
+      <>
+        <main className="app">
+          <header className="topbar">
+            <div className="brand">
+              <div className="mark">S2S</div>
+              <strong>Speech-to-Scene</strong>
+            </div>
+            <div className="actions">
+              <button
+                className="btn"
+                type="button"
+                onClick={() => setShowSettings(true)}
+                title="配置 API Key"
+              >
+                <Settings size={14} />
+                设置
+              </button>
+            </div>
+          </header>
+          <LandingView
+            onCreate={(input) => void handleCreate(input)}
+            busy={busyAction !== null}
+            error={actionError}
+          />
+        </main>
+        {client && showSettings && (
+          <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
+        )}
+      </>
+    );
+  }
 
   if (state.kind === "loading") {
     return (
@@ -309,7 +403,7 @@ export function App(): React.ReactElement {
 
   return (
     <main className="app">
-      <TopBar project={project} error={null} />
+      <TopBar project={project} error={null} onSettings={() => setShowSettings(true)} />
       <section className="layout">
         <SceneList
           scenes={project.scenes}
@@ -347,6 +441,9 @@ export function App(): React.ReactElement {
           </>
         )}
       </section>
+      {client && showSettings && (
+        <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
+      )}
     </main>
   );
 }
