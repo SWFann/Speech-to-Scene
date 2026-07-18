@@ -58,7 +58,6 @@ describe("ReviewApiClient", () => {
     mockFetchSuccess();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     const project = await client.getProject();
@@ -81,7 +80,6 @@ describe("ReviewApiClient", () => {
 
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "wrong-token",
     });
 
     await expect(client.getProject()).rejects.toThrow(ReviewApiError);
@@ -108,7 +106,6 @@ describe("ReviewApiClient", () => {
 
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "bad-token",
     });
 
     try {
@@ -127,7 +124,6 @@ describe("ReviewApiClient", () => {
 
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     try {
@@ -161,7 +157,6 @@ describe("ReviewApiClient", () => {
 
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     const health = await client.getHealth();
@@ -176,19 +171,19 @@ describe("ReviewApiClient", () => {
     expect(headers["X-S2S-Session"]).toBeUndefined();
   });
 
-  it("6. getProject sends X-S2S-Session header", async () => {
+  it("6. getProject does not send X-S2S-Session header", async () => {
     mockFetchSuccess();
 
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "my-secret-token",
     });
 
     await client.getProject();
 
     const fetchCall = vi.mocked(fetch).mock.calls[0]!;
     const headers = (fetchCall[1] as RequestInit).headers as Record<string, string>;
-    expect(headers["X-S2S-Session"]).toBe("my-secret-token");
+    // Phase 3: session token removed — client must not send X-S2S-Session
+    expect(headers["X-S2S-Session"]).toBeUndefined();
   });
 
   it("7. getProject 404 — returns not_found error", async () => {
@@ -199,7 +194,6 @@ describe("ReviewApiClient", () => {
 
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     try {
@@ -256,7 +250,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     mockMutationSuccess();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     await client.searchScene("scene-001", {
@@ -273,7 +266,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     expect(init.method).toBe("POST");
 
     const headers = init.headers as Record<string, string>;
-    expect(headers["X-S2S-Session"]).toBe("test-token");
     expect(headers["Content-Type"]).toBe("application/json");
 
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
@@ -290,7 +282,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     mockMutationSuccess();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     await client.searchScene("scene-001", { refresh: true, limit: 12 });
@@ -307,7 +298,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     mockMutationSuccess();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     const project = await client.searchScene("scene-001", { refresh: true });
@@ -328,7 +318,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
 
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     try {
@@ -348,7 +337,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     mockFetchNetworkError();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "super-secret-token-123",
     });
 
     try {
@@ -364,14 +352,13 @@ describe("ReviewApiClient — searchScene mutation", () => {
     }
   });
 
-  it("13. searchScene 401 — returns session_required, token not in message", async () => {
+  it("13. searchScene 401 — returns session_required error", async () => {
     mockFetchError(401, {
       ok: false,
       error: { code: "session_required", message: "Session token is required" },
     });
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "my-secret-token",
     });
 
     try {
@@ -382,13 +369,7 @@ describe("ReviewApiClient — searchScene mutation", () => {
       const apiErr = err as ReviewApiError;
       expect(apiErr.code).toBe("session_required");
       expect(apiErr.statusCode).toBe(401);
-      expect(apiErr.message).not.toContain("my-secret-token");
     }
-
-    // Verify the token was sent in the header
-    const fetchCall = vi.mocked(fetch).mock.calls[0]!;
-    const headers = (fetchCall[1] as RequestInit).headers as Record<string, string>;
-    expect(headers["X-S2S-Session"]).toBe("my-secret-token");
   });
 
   it("14. searchScene 400 invalid_request — returns invalid_request error", async () => {
@@ -398,7 +379,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     });
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     try {
@@ -419,7 +399,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     });
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
     });
 
     try {
@@ -443,7 +422,6 @@ describe("ReviewApiClient — searchScene mutation", () => {
     });
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
-      token: "bad-token",
     });
 
     try {

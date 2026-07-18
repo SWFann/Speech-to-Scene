@@ -9,15 +9,13 @@
  *
  * Requirements:
  * 1. Read OS-assigned port from stdout
- * 2. GET /api/health without token → 200
- * 3. GET /api/project without token → 401
- * 4. GET /api/project with wrong token → 403
- * 5. GET /api/project with correct token → 200
- * 6. Evil Host → 403
- * 7. Response data has no projectRoot or absolute paths
- * 8. SIGINT → exit code 0
- * 9. Port released, no residual process
- * 10. stderr has no unhandled exceptions
+ * 2. GET /api/health → 200
+ * 3. GET /api/project → 200 (Phase 3: token gate removed)
+ * 4. Evil Host → 403
+ * 5. Response data has no projectRoot or absolute paths
+ * 6. SIGINT → exit code 0
+ * 7. Port released, no residual process
+ * 8. stderr has no unhandled exceptions
  *
  * Must set timeout and finally cleanup, kill child on failure.
  */
@@ -170,7 +168,6 @@ interface ServerHandle {
  */
 async function spawnDistServer(
   projectRoot: string,
-  token: string,
   options: { cwd?: string } = {},
 ): Promise<ServerHandle> {
   const stderrChunks: string[] = [];
@@ -185,8 +182,6 @@ async function spawnDistServer(
       "--no-open",
       "--port",
       "0",
-      "--token",
-      token,
       "--host",
       "127.0.0.1",
     ],
@@ -255,7 +250,7 @@ afterAll(async () => {
 });
 
 describe("dist smoke test — Project API", () => {
-  it("full lifecycle: health, project token gates, evil host, graceful shutdown", async () => {
+  it("full lifecycle: health, project API, evil host, graceful shutdown", async () => {
     // Ensure dist is built fresh — never rely on stale artifacts
     try {
       execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() });
@@ -272,51 +267,35 @@ describe("dist smoke test — Project API", () => {
       "utf-8",
     );
 
-    const TOKEN = "smoke-test-token";
-    const server = await spawnDistServer(dir, TOKEN);
+    const server = await spawnDistServer(dir);
 
     try {
-      // 1. GET /api/health without token → 200
+      // 1. GET /api/health → 200
       const health = await httpGet(server.port, "/api/health", {
         host: `127.0.0.1:${server.port}`,
       });
       expect(health.status).toBe(200);
 
-      // 2. GET /api/project without token → 401
-      const noToken = await httpGet(server.port, "/api/project", {
+      // 2. GET /api/project → 200 (Phase 3: token gate removed)
+      const projectRes = await httpGet(server.port, "/api/project", {
         host: `127.0.0.1:${server.port}`,
       });
-      expect(noToken.status).toBe(401);
+      expect(projectRes.status).toBe(200);
+      expect((projectRes.body as { ok: boolean }).ok).toBe(true);
 
-      // 3. GET /api/project with wrong token → 403
-      const wrongToken = await httpGet(server.port, "/api/project", {
-        host: `127.0.0.1:${server.port}`,
-        token: "wrong-token",
-      });
-      expect(wrongToken.status).toBe(403);
-
-      // 4. GET /api/project with correct token → 200
-      const correctToken = await httpGet(server.port, "/api/project", {
-        host: `127.0.0.1:${server.port}`,
-        token: TOKEN,
-      });
-      expect(correctToken.status).toBe(200);
-      expect((correctToken.body as { ok: boolean }).ok).toBe(true);
-
-      // 5. Evil Host → 403
+      // 3. Evil Host → 403
       const evilHost = await httpGet(server.port, "/api/project", {
         host: "evil.example:3210",
-        token: TOKEN,
       });
       expect(evilHost.status).toBe(403);
 
-      // 6. Response has no projectRoot or absolute paths
-      const bodyStr = JSON.stringify(correctToken.body);
+      // 4. Response has no projectRoot or absolute paths
+      const bodyStr = JSON.stringify(projectRes.body);
       expect(bodyStr).not.toContain(dir);
       expect(bodyStr).not.toContain("/tmp");
       expect(bodyStr).not.toContain(os.tmpdir());
 
-      // 7. Graceful shutdown via SIGINT
+      // 5. Graceful shutdown via SIGINT
       // On POSIX (Linux/macOS/WSL), SIGINT to the node process triggers graceful
       // shutdown and the process exits with code 0.
       // On Windows, SIGINT semantics differ and the process may not exit with
@@ -340,7 +319,7 @@ describe("dist smoke test — Project API", () => {
         expect(exitCode).toBe(0);
       }
 
-      // 8. stderr has no unhandled exceptions
+      // 6. stderr has no unhandled exceptions
       const stderr = server.stderrChunks.join("");
       expect(stderr).not.toContain("Unhandled");
       expect(stderr).not.toContain("TypeError");
@@ -428,7 +407,7 @@ describe("dist smoke test — Scene Update + Queries API", () => {
     );
 
     const TOKEN = "smoke-scene-token";
-    const server = await spawnDistServer(dir, TOKEN);
+    const server = await spawnDistServer(dir);
 
     try {
       const host = `127.0.0.1:${server.port}`;
@@ -436,7 +415,6 @@ describe("dist smoke test — Scene Update + Queries API", () => {
       // 1. PATCH /api/scenes/scene-001 — update visualPlan
       const patchRes = await httpRequestWithBody(server.port, "PATCH", "/api/scenes/scene-001", {
         host,
-        token: TOKEN,
         body: JSON.stringify({
           visualPlan: { rationale: "Smoke PATCH rationale" },
         }),
@@ -447,7 +425,6 @@ describe("dist smoke test — Scene Update + Queries API", () => {
       // 2. GET /api/project — verify PATCH persisted
       const getAfterPatch = await httpGet(server.port, "/api/project", {
         host,
-        token: TOKEN,
       });
       expect(getAfterPatch.status).toBe(200);
       // Step-by-step casts to avoid parser issues with nested generics
@@ -463,7 +440,6 @@ describe("dist smoke test — Scene Update + Queries API", () => {
         "/api/scenes/scene-001/queries",
         {
           host,
-          token: TOKEN,
           body: JSON.stringify({
             queries: [
               {
@@ -490,7 +466,6 @@ describe("dist smoke test — Scene Update + Queries API", () => {
       // 4. GET /api/project — verify queries persisted
       const getAfterPut = await httpGet(server.port, "/api/project", {
         host,
-        token: TOKEN,
       });
       expect(getAfterPut.status).toBe(200);
       // Step-by-step casts to avoid parser issues with nested generics
@@ -558,7 +533,7 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
     );
 
     const TOKEN = "smoke-search-token";
-    const server = await spawnDistServer(dir, TOKEN);
+    const server = await spawnDistServer(dir);
 
     try {
       const host = `127.0.0.1:${server.port}`;
@@ -570,7 +545,6 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
         "/api/scenes/scene-001/search",
         {
           host,
-          token: TOKEN,
           body: JSON.stringify({ providers: ["fixture"], refresh: true }),
         },
       );
@@ -580,7 +554,6 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
       // 2. GET /api/project — verify search results persisted
       const getAfterSearch = await httpGet(server.port, "/api/project", {
         host,
-        token: TOKEN,
       });
       expect(getAfterSearch.status).toBe(200);
       // Step-by-step casts to avoid parser issues with nested generics
@@ -675,7 +648,7 @@ describe("dist smoke test — Static Serving (M5-03)", () => {
     const TOKEN = "smoke-static-token";
     const nonRepoCwd = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-non-repo-cwd-"));
     tempDirs.push(nonRepoCwd);
-    const server = await spawnDistServer(dir, TOKEN, { cwd: nonRepoCwd });
+    const server = await spawnDistServer(dir, { cwd: nonRepoCwd });
 
     try {
       const host = `127.0.0.1:${server.port}`;

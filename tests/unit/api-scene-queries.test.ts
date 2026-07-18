@@ -5,8 +5,7 @@
  *  1. Correct token successfully replaces queries
  *  2. Candidates are preserved
  *  3. lastSearchedAt is preserved
- *  4. Missing token → 401 session_required
- *  5. Wrong token → 403 session_rejected
+ *  4. PUT queries succeeds without session token (Phase 3)
  *  6. Evil Host → 403 host_rejected
  *  7. Bad Origin → 403 origin_rejected
  *  8. Malformed JSON → 400 invalid_json
@@ -302,12 +301,11 @@ async function startTestServer(
 // ---------------------------------------------------------------------------
 
 describe("PUT /api/scenes/:sceneId/queries", () => {
-  it("1. correct token successfully replaces queries", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+  it("1. successfully replaces queries", async () => {
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [
           { id: "q-001", language: "zh", query: "新查询", purpose: "main", enabled: true },
@@ -329,11 +327,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("2. candidates are preserved after query replacement", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [
           { id: "q-001", language: "en", query: "updated query", purpose: "main", enabled: true },
@@ -349,11 +346,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("3. lastSearchedAt is preserved", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [
           { id: "q-001", language: "en", query: "updated", purpose: "main", enabled: true },
@@ -368,41 +364,25 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
     expect(lastSearchedAt).toBe(FIXED_NOW);
   }, 10000);
 
-  it("4. missing token → 401 session_required", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+  it("4. PUT queries succeeds without session token (Phase 3)", async () => {
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
       body: JSON.stringify({
-        queries: [{ id: "q-1", language: "en", query: "x", purpose: "main", enabled: true }],
+        queries: [{ id: "q-001", language: "en", query: "x", purpose: "main", enabled: true }],
       }),
     });
 
-    expect(status).toBe(401);
-    expect((body as { error: { code: string } }).error.code).toBe("session_required");
-  }, 10000);
-
-  it("5. wrong token → 403 session_rejected", async () => {
-    const { port } = await startTestServer({ token: "tok" });
-    const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
-      method: "PUT",
-      host: `127.0.0.1:${port}`,
-      token: "wrong",
-      body: JSON.stringify({
-        queries: [{ id: "q-1", language: "en", query: "x", purpose: "main", enabled: true }],
-      }),
-    });
-
-    expect(status).toBe(403);
-    expect((body as { error: { code: string } }).error.code).toBe("session_rejected");
+    expect(status).toBe(200);
+    expect((body as { ok: boolean }).ok).toBe(true);
   }, 10000);
 
   it("6. evil Host → 403 host_rejected", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: "evil.example:3210",
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-1", language: "en", query: "x", purpose: "main", enabled: true }],
       }),
@@ -413,12 +393,11 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("7. bad Origin → 403 origin_rejected", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
       origin: "https://evil.example",
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-1", language: "en", query: "x", purpose: "main", enabled: true }],
       }),
@@ -429,11 +408,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("8. malformed JSON → 400 invalid_json", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: "{broken json",
     });
 
@@ -442,11 +420,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("9. duplicate query id → 400 invalid_request", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [
           { id: "q-dup", language: "en", query: "first", purpose: "main", enabled: true },
@@ -460,11 +437,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("10. stock_asset without enabled query → 409 conflict", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-1", language: "en", query: "x", purpose: "main", enabled: false }],
       }),
@@ -475,13 +451,12 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("11. replacing query IDs that invalidate candidates → 409 conflict", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     // scene-001 has candidate with matchedQueryId "q-001"
     // We replace with query IDs that don't include "q-001"
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [
           { id: "q-different", language: "en", query: "x", purpose: "main", enabled: true },
@@ -494,11 +469,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("12. scene not found → 404 not_found", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/non-existent/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-1", language: "en", query: "x", purpose: "main", enabled: true }],
       }),
@@ -509,11 +483,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("13. 405 Allow header for GET on PUT-only route", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, headers } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "GET",
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
 
     expect(status).toBe(405);
@@ -522,13 +495,11 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
 
   it("14. response does not leak sensitive info", async () => {
     const { port } = await startTestServer({
-      token: "super-secret-token",
       projectRoot: "/very/secret/path",
     });
     const { body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "super-secret-token",
       body: JSON.stringify({
         queries: [{ id: "q-001", language: "en", query: "x", purpose: "main", enabled: true }],
       }),
@@ -545,11 +516,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   // -----------------------------------------------------------------------
 
   it("15. rejects unknown top-level field 'extra' → 400 invalid_request", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-001", language: "en", query: "x", purpose: "main", enabled: true }],
         extra: "bad",
@@ -561,11 +531,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("16. rejects body attempting to override projectRoot → 400", async () => {
-    const { port, repo } = await startTestServer({ token: "tok" });
+    const { port, repo } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-001", language: "en", query: "x", purpose: "main", enabled: true }],
         projectRoot: "/evil/path",
@@ -580,11 +549,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("17. rejects body attempting to override sceneId → 400", async () => {
-    const { port, repo } = await startTestServer({ token: "tok" });
+    const { port, repo } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-001", language: "en", query: "x", purpose: "main", enabled: true }],
         sceneId: "evil-scene",
@@ -599,11 +567,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("18. rejects body with only unknown field (no queries) → 400", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ extra: "bad" }),
     });
 
@@ -612,11 +579,10 @@ describe("PUT /api/scenes/:sceneId/queries", () => {
   }, 10000);
 
   it("19. rejects body with queries as non-array → 400", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/queries", {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ queries: "not-an-array" }),
     });
 

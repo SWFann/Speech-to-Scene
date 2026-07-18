@@ -1,4 +1,4 @@
-import { CheckCircle, AlertCircle, Settings, Upload } from "lucide-react";
+import { CheckCircle, AlertCircle, Settings, Upload, FolderOpen } from "lucide-react";
 
 import type { ReviewProjectView } from "../types.js";
 
@@ -8,6 +8,8 @@ interface TopBarProps {
   onSettings?: () => void;
   /** Re-open the upload/landing view to replace the script (force-overwrite). */
   onReset?: () => void;
+  /** Phase 3: navigate to project list view. */
+  onProjectList?: () => void;
 }
 
 /**
@@ -22,7 +24,13 @@ function isFixtureProject(project: ReviewProjectView | null): boolean {
   );
 }
 
-export function TopBar({ project, error, onSettings, onReset }: TopBarProps): React.ReactElement {
+export function TopBar({
+  project,
+  error,
+  onSettings,
+  onReset,
+  onProjectList,
+}: TopBarProps): React.ReactElement {
   const title = project?.project.title ?? "Speech-to-Scene";
   const sceneCount = project?.sceneCount ?? 0;
   const searchedCount = project?.searchedSceneCount ?? 0;
@@ -35,6 +43,17 @@ export function TopBar({ project, error, onSettings, onReset }: TopBarProps): Re
         <strong>Speech-to-Scene</strong>
       </div>
       <div className="project-meta">
+        {onProjectList && (
+          <button
+            className="btn"
+            type="button"
+            onClick={onProjectList}
+            title="查看所有项目"
+          >
+            <FolderOpen size={14} />
+            项目列表
+          </button>
+        )}
         <span>{title}</span>
         {project && (
           <span className="status-pill ok">

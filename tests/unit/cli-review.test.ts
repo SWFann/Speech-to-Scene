@@ -322,8 +322,8 @@ describe("CLI: s2s review", () => {
   // Token output
   // -------------------------------------------------------------------------
 
-  describe("token output", () => {
-    it("prints the actual auto-generated token (not '(auto-generated)')", async () => {
+  describe("server lifecycle", () => {
+    it("starts and stops the review server", async () => {
       const projectRoot = await setupValidProject();
 
       const handle = await startReviewServer({
@@ -331,34 +331,6 @@ describe("CLI: s2s review", () => {
         host: "127.0.0.1",
         port: 0,
       });
-
-      // Verify the token is truthy and is a UUID format
-      expect(handle.token).toBeTruthy();
-      expect(typeof handle.token).toBe("string");
-      expect(handle.token).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-      );
-
-      // The CLI would print this token directly, not "(auto-generated)"
-      const tokenDisplay = `  Token:   ${handle.token}`;
-      expect(tokenDisplay).not.toContain("(auto-generated)");
-      expect(tokenDisplay).toContain(handle.token);
-
-      await handle.close();
-    }, 10000);
-
-    it("returns the provided token when specified", async () => {
-      const projectRoot = await setupValidProject();
-
-      const handle = await startReviewServer({
-        projectRoot,
-        host: "127.0.0.1",
-        port: 0,
-        token: "user-specified-token-abc",
-      });
-
-      // Verify the token is exactly what was provided
-      expect(handle.token).toBe("user-specified-token-abc");
 
       await handle.close();
     }, 10000);

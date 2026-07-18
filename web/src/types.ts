@@ -211,6 +211,29 @@ export interface ProjectApiResponse {
   readonly project: ReviewProjectView;
 }
 
+/** Phase 3: a single project entry in the workspace listing. */
+export interface ProjectListItem {
+  readonly name: string;
+  readonly path: string;
+  readonly hasProject: true;
+  readonly title: string;
+  readonly sceneCount: number;
+  readonly updatedAt: string;
+  readonly isActive: boolean;
+}
+
+/** Phase 3: GET /api/projects response envelope. */
+export interface ProjectsApiResponse {
+  readonly ok: true;
+  readonly projects: readonly ProjectListItem[];
+  readonly activeProject: string | null;
+}
+
+/** Phase 3: DELETE /api/project response envelope. */
+export interface DeleteProjectApiResponse {
+  readonly ok: true;
+}
+
 /** GET /api/health response. */
 export interface HealthApiResponse {
   readonly ok: true;

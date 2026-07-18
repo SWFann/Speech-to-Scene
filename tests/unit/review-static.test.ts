@@ -160,7 +160,6 @@ describe("review-server static serving (fake static root)", () => {
       projectRoot: "/tmp/test-project",
       host: "127.0.0.1",
       port: 0,
-      token: "test-token",
       staticRoot,
     });
     servers.push({ handle });

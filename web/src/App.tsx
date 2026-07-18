@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import {
-  ReviewApiClient,
-  ReviewApiError,
-  resolveSessionToken,
-  saveSessionToken,
-  resolveBaseUrl,
-} from "./api/review-api.js";
-import type { ReviewProjectView } from "./types.js";
+import { type ReviewApiClient, createClientFromEnv, ReviewApiError } from "./api/review-api.js";
+import type { ReviewProjectView, ProjectListItem } from "./types.js";
 import { TopBar } from "./components/TopBar.js";
 import { SceneList } from "./components/SceneList.js";
 import { SceneDetail, type BusyAction } from "./components/SceneDetail.js";
@@ -15,7 +9,10 @@ import { Settings } from "lucide-react";
 import { ErrorView } from "./components/ErrorView.js";
 import { LandingView } from "./components/LandingView.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
+import { ProjectListView } from "./components/ProjectListView.js";
 import type { ActionErrorInfo } from "./components/ActionError.js";
+
+type View = "project-list" | "landing" | "review";
 
 type LoadState =
   | { kind: "loading" }
@@ -38,28 +35,35 @@ function toActionError(err: unknown): ActionErrorInfo {
 }
 
 export function App(): React.ReactElement {
+  const [view, setView] = useState<View>("review");
   const [state, setState] = useState<LoadState>({ kind: "loading" });
-  const [token, setToken] = useState<string | null>(() => resolveSessionToken());
+  const [projects, setProjects] = useState<readonly ProjectListItem[]>([]);
+  const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectListError, setProjectListError] = useState<ActionErrorInfo | null>(null);
 
-  const client = useMemo<ReviewApiClient | null>(() => {
-    if (!token) return null;
-    return new ReviewApiClient({
-      baseUrl: resolveBaseUrl(),
-      token,
-    });
-  }, [token]);
+  const client = useMemo<ReviewApiClient>(
+    () => createClientFromEnv(),
+    [],
+  );
 
-  const loadProject = useCallback(async () => {
-    if (!client) {
-      setState({
-        kind: "error",
-        message: "未提供 session token",
-        hint: "请从 CLI 输出中复制 token，或在 URL 中添加 ?token=<your-token>",
-        code: "session_required",
-      });
-      return;
+  // --- Load project list (Phase 3) ---
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectListError(null);
+    try {
+      const result = await client.listProjects();
+      setProjects(result.projects);
+      setActiveProject(result.activeProject);
+    } catch (err) {
+      setProjectListError(toActionError(err));
+    } finally {
+      setProjectsLoading(false);
     }
+  }, [client]);
 
+  // --- Load active project ---
+  const loadProject = useCallback(async () => {
     setState({ kind: "loading" });
 
     try {
@@ -67,7 +71,6 @@ export function App(): React.ReactElement {
       setState({ kind: "success", project });
     } catch (err) {
       if (err instanceof ReviewApiError) {
-        // No project yet → show LandingView so the user can upload a script.
         if (err.code === "not_found") {
           setShowLanding(true);
           return;
@@ -100,7 +103,6 @@ export function App(): React.ReactElement {
   const [showLanding, setShowLanding] = useState(false);
   const [flowStep, setFlowStep] = useState<string | null>(null);
 
-  // Set initial active scene when project loads
   useEffect(() => {
     if (state.kind === "success" && !activeSceneId) {
       const firstScene = state.project.scenes[0];
@@ -118,12 +120,6 @@ export function App(): React.ReactElement {
     [],
   );
 
-  const handleTokenSubmit = useCallback((newToken: string) => {
-    saveSessionToken(newToken);
-    setToken(newToken);
-  }, []);
-
-  // Sync project state after mutation
   const syncFromProject = useCallback(
     (project: ReviewProjectView) => {
       setState({ kind: "success", project });
@@ -131,9 +127,8 @@ export function App(): React.ReactElement {
     [],
   );
 
-  // --- Mutation: search scene (multi-source, server auto-selects providers) ---
   const handleSearchScene = useCallback(async () => {
-    if (!client || !activeSceneId) return;
+    if (!activeSceneId) return;
     setActionError(null);
     setBusyAction("search");
     try {
@@ -149,10 +144,9 @@ export function App(): React.ReactElement {
     }
   }, [client, activeSceneId, syncFromProject]);
 
-  // --- Mutation: generate AI image for a scene ---
   const handleGenerateImage = useCallback(
     async (prompt: string) => {
-      if (!client || !activeSceneId) return;
+      if (!activeSceneId) return;
       setActionError(null);
       setBusyAction("generate");
       try {
@@ -167,10 +161,8 @@ export function App(): React.ReactElement {
     [client, activeSceneId, syncFromProject],
   );
 
-  // --- F4: one-click create → plan → search ---
   const handleCreate = useCallback(
     async (input: { content: string; fileName?: string; title?: string }) => {
-      if (!client) return;
       setActionError(null);
       setBusyAction("search");
       setFlowStep("创建项目中…");
@@ -184,7 +176,6 @@ export function App(): React.ReactElement {
         if (input.fileName !== undefined) createInput.fileName = input.fileName;
         if (input.title !== undefined) createInput.title = input.title;
         await client.createProject(createInput);
-        // Planner: prefer settings, default fixture (no key needed).
         let plannerProvider: "fixture" | "deepseek" | "stepfun" = "fixture";
         try {
           const settings = await client.getSettings();
@@ -199,7 +190,6 @@ export function App(): React.ReactElement {
         }
         setFlowStep("正在用 LLM 切片成场景…");
         await client.planProject({ provider: plannerProvider, maxScenes: 12, force: true });
-        // Search: multi-source aggregation (server auto-selects all configured providers).
         setFlowStep("正在搜索素材候选…");
         const project = await client.searchProject({ limit: 12 });
         syncFromProject(project);
@@ -214,10 +204,67 @@ export function App(): React.ReactElement {
     [client, syncFromProject],
   );
 
+  // --- Phase 3: switch to a different project ---
+  const handleSwitchProject = useCallback(
+    async (projectName: string) => {
+      setProjectListError(null);
+      try {
+        await client.switchProject(projectName);
+        await loadProject();
+        setView("review");
+      } catch (err) {
+        setProjectListError(toActionError(err));
+      }
+    },
+    [client, loadProject],
+  );
+
+  // --- Phase 3: delete a project ---
+  const handleDeleteProject = useCallback(
+    async (projectName: string) => {
+      setProjectListError(null);
+      try {
+        await client.deleteProject(projectName);
+        await loadProjects();
+        // If the deleted project was active, load a fresh project view
+        if (projectName === activeProject) {
+          await loadProject();
+        }
+      } catch (err) {
+        setProjectListError(toActionError(err));
+      }
+    },
+    [client, loadProjects, loadProject, activeProject],
+  );
+
   const handleDismissError = useCallback(() => {
     setActionError(null);
   }, []);
 
+  const handleDismissProjectListError = useCallback(() => {
+    setProjectListError(null);
+  }, []);
+
+  // --- Project list view ---
+  if (view === "project-list") {
+    return (
+      <ProjectListView
+        projects={projects}
+        activeProject={activeProject}
+        onSwitch={(name) => void handleSwitchProject(name)}
+        onCreate={() => {
+          setShowLanding(true);
+          setView("landing");
+        }}
+        onDelete={(name) => void handleDeleteProject(name)}
+        loading={projectsLoading}
+        error={projectListError}
+        onDismissError={handleDismissProjectListError}
+      />
+    );
+  }
+
+  // --- Landing view (upload script) ---
   if (showLanding) {
     return (
       <>
@@ -228,6 +275,18 @@ export function App(): React.ReactElement {
               <strong>Speech-to-Scene</strong>
             </div>
             <div className="actions">
+              <button
+                className="btn"
+                type="button"
+                onClick={() => {
+                  setShowLanding(false);
+                  setView("project-list");
+                  void loadProjects();
+                }}
+                title="返回项目列表"
+              >
+                项目列表
+              </button>
               <button
                 className="btn"
                 type="button"
@@ -246,7 +305,7 @@ export function App(): React.ReactElement {
             error={actionError}
           />
         </main>
-        {client && showSettings && (
+        {showSettings && (
           <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
         )}
       </>
@@ -266,11 +325,7 @@ export function App(): React.ReactElement {
       <ErrorView
         message={state.message}
         {...(state.hint ? { hint: state.hint } : {})}
-        code={state.code}
         onRetry={() => void loadProject()}
-        {...(state.code === "session_required" || state.code === "session_rejected"
-          ? { onTokenSubmit: handleTokenSubmit }
-          : {})}
       />
     );
   }
@@ -291,6 +346,10 @@ export function App(): React.ReactElement {
             setShowLanding(true);
           }
         }}
+        onProjectList={() => {
+          setView("project-list");
+          void loadProjects();
+        }}
       />
       <section className="layout">
         <SceneList
@@ -309,7 +368,7 @@ export function App(): React.ReactElement {
           />
         )}
       </section>
-      {client && showSettings && (
+      {showSettings && (
         <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
       )}
     </main>

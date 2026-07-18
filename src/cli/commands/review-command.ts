@@ -3,16 +3,13 @@
  *
  * Starts a local HTTP review server for the specified project.
  *
- * Usage:
- *   s2s review <project-directory> [--host 127.0.0.1] [--port 3210] [--no-open] [--token <token>]
+ * Phase 3: session token removed. Security relies on loopback + Host + Origin.
+ * Multi-project workspace support: scans workspace/ for projects.
  *
- * M4-01: server skeleton + health endpoint.
- * M4-02: security envelope (Host/Origin/token, JSON body parser, security headers).
- * M4-03B: GET /api/project (token-gated read).
- * M4-04B: PATCH /api/scenes/:sceneId, PUT /api/scenes/:sceneId/queries.
- * M4-05: POST /api/scenes/:sceneId/search (single-scene asset search).
- * M4-06: PUT /api/scenes/:sceneId/selection, PUT /api/scenes/:sceneId/skip.
- * M5-03: Serves the React Review Board build from web/dist.
+ * Usage:
+ *   s2s review [project-directory] [--host 127.0.0.1] [--port 3210] [--no-open]
+ *
+ * If project-directory is omitted, defaults to ./workspace/default.
  */
 
 import { Command } from "commander";
@@ -30,6 +27,10 @@ import { searchProjectAssets as searchProjectAssetsUseCase } from "../../applica
 import { createProjectFromContent as createProjectFromContentUseCase } from "../../application/create-project-from-content.js";
 import { planProject as planProjectUseCase } from "../../application/plan-script.js";
 import { generateSceneImage as generateSceneImageUseCase } from "../../application/generate-scene-image.js";
+import { listProjects as listProjectsUseCase } from "../../application/list-projects.js";
+import { switchProject as switchProjectUseCase } from "../../application/switch-project.js";
+import { deleteProject as deleteProjectUseCase } from "../../application/delete-project.js";
+import { FileSystemWorkspaceScanner } from "../../infrastructure/workspace-scanner.js";
 import type { Settings } from "../../application/ports/settings-store.js";
 import { FsSettingsStore } from "../../infrastructure/settings-store.js";
 import { DefaultLinkSuggestionGenerator } from "../../infrastructure/link-suggestion-generator.js";
@@ -53,6 +54,7 @@ export interface ReviewCommandOptions {
   host: string;
   port: string;
   open: boolean;
+  /** Phase 3: ignored (backward compat, no longer used). */
   token?: string;
 }
 
@@ -74,11 +76,11 @@ export function createReviewCommand(ctx: CommandContext): Command {
 
   command
     .description("Start a local review server for a Speech-to-Scene project")
-    .argument("<project-directory>", "Path to the project directory")
+    .argument("[project-directory]", "Path to the project directory", "./workspace/default")
     .option("--host <host>", "Host to bind to", "127.0.0.1")
     .option("--port <port>", "Port to listen on", "3210")
     .option("--no-open", "Do not open a browser (default: open)")
-    .option("--token <token>", "Session token for mutating requests")
+    .option("--token <token>", "Ignored (backward compat; token removed in Phase 3)")
     .action(async (projectDirectory: string, options: ReviewCommandOptions) => {
       try {
         // Validate host
@@ -233,6 +235,28 @@ export function createReviewCommand(ctx: CommandContext): Command {
               now: () => new Date(),
             });
           },
+
+          // Phase 3: list all projects in the workspace
+          listProjects: (workspaceRoot: string) =>
+            listProjectsUseCase(
+              workspaceRoot,
+              new FileSystemWorkspaceScanner(),
+              ctx.repository,
+            ),
+
+          // Phase 3: switch to a different project
+          switchProject: (input: unknown) =>
+            switchProjectUseCase(
+              input as Parameters<typeof switchProjectUseCase>[0],
+              ctx.repository,
+            ),
+
+          // Phase 3: delete the current active project
+          deleteProject: (input: unknown) =>
+            deleteProjectUseCase(
+              input as Parameters<typeof deleteProjectUseCase>[0],
+              new FileSystemWorkspaceScanner(),
+            ),
         };
         const staticRoot = resolveReviewStaticRoot({
           cwd: process.cwd(),
@@ -245,10 +269,10 @@ export function createReviewCommand(ctx: CommandContext): Command {
         const handle = await startReviewServer(
           {
             projectRoot: resolvedProjectRoot,
+            workspaceRoot,
             host,
             port,
             staticRoot,
-            ...(options.token !== undefined ? { token: options.token } : {}),
           },
           deps,
         );
@@ -256,13 +280,12 @@ export function createReviewCommand(ctx: CommandContext): Command {
         console.log(`Review server started:`);
         console.log(`  Project: ${resolvedProjectRoot}`);
         console.log(`  URL:     http://${host}:${handle.port}`);
-        console.log(`  Token:   ${handle.token}`);
-        console.log(`  Review:  http://${host}:${handle.port}/?token=${handle.token}`);
+        console.log(`  Review:  http://${host}:${handle.port}/`);
         console.log(`  Press Ctrl+C to stop`);
 
-        // E1: open browser to the review URL (token auto-included)
+        // Phase 3: open browser to the review URL (no token needed)
         if (options.open) {
-          const reviewUrl = `http://${host}:${handle.port}/?token=${handle.token}`;
+          const reviewUrl = `http://${host}:${handle.port}/`;
           const cmd =
             process.platform === "darwin"
               ? `open "${reviewUrl}"`

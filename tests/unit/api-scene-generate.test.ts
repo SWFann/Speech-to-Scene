@@ -9,8 +9,7 @@
  *  3.  Unknown scene → 404 not_found
  *  4.  Invalid body (empty prompt) → 400 invalid_request
  *  5.  Unknown body field → 400 invalid_request
- *  6.  Missing token → 401 session_required
- *  7.  Wrong token → 403 session_rejected
+ *  6.  POST generate succeeds without session token (Phase 3)
  *  8.  Route not registered when generateSceneImage dep is absent
  *  9.  405 Allow header for GET on POST-only route
  */
@@ -228,14 +227,12 @@ afterEach(async () => {
 
 async function startTestServer(
   overrides: {
-    token?: string;
     withoutGenerate?: boolean;
   } = {},
 ): Promise<{
   handle: ReviewServerHandle;
   port: number;
   repo: InMemoryRepository;
-  token: string;
 }> {
   const repo = new InMemoryRepository();
   const projectRoot = "/test/generate-api";
@@ -279,18 +276,16 @@ async function startTestServer(
     ...(overrides.withoutGenerate ? {} : { generateSceneImage: generateSceneImageBound }),
   };
 
-  const token = overrides.token ?? "test-token-gen-api";
   const handle = await startReviewServer(
     {
       projectRoot,
       host: "127.0.0.1",
       port: 0,
-      token,
     },
     deps,
   );
   servers.push({ handle });
-  return { handle, port: handle.port, repo, token };
+  return { handle, port: handle.port, repo };
 }
 
 // ---------------------------------------------------------------------------
@@ -299,11 +294,10 @@ async function startTestServer(
 
 describe("POST /api/scenes/:sceneId/generate", () => {
   it("1. successful generation appends a generated candidate", async () => {
-    const { port, token } = await startTestServer();
+    const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
       method: "POST",
-      token,
       origin: `http://127.0.0.1:${port}`,
       body: JSON.stringify({ prompt: "A beautiful city skyline", aspectRatio: "9:16" }),
     });
@@ -318,11 +312,10 @@ describe("POST /api/scenes/:sceneId/generate", () => {
   });
 
   it("2. response is UI-safe DTO (no projectRoot/token/API key)", async () => {
-    const { port, token } = await startTestServer();
+    const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
       method: "POST",
-      token,
       origin: `http://127.0.0.1:${port}`,
       body: JSON.stringify({ prompt: "A beautiful city" }),
     });
@@ -336,11 +329,10 @@ describe("POST /api/scenes/:sceneId/generate", () => {
   });
 
   it("3. unknown scene → 404 not_found", async () => {
-    const { port, token } = await startTestServer();
+    const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/nonexistent/generate", {
       method: "POST",
-      token,
       origin: `http://127.0.0.1:${port}`,
       body: JSON.stringify({ prompt: "test" }),
     });
@@ -351,11 +343,10 @@ describe("POST /api/scenes/:sceneId/generate", () => {
   });
 
   it("4. invalid body (empty prompt) → 400 invalid_request", async () => {
-    const { port, token } = await startTestServer();
+    const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
       method: "POST",
-      token,
       origin: `http://127.0.0.1:${port}`,
       body: JSON.stringify({ prompt: "   " }),
     });
@@ -366,11 +357,10 @@ describe("POST /api/scenes/:sceneId/generate", () => {
   });
 
   it("5. unknown body field → 400 invalid_request", async () => {
-    const { port, token } = await startTestServer();
+    const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
       method: "POST",
-      token,
       origin: `http://127.0.0.1:${port}`,
       body: JSON.stringify({ prompt: "test", extraField: "bad" }),
     });
@@ -380,7 +370,7 @@ describe("POST /api/scenes/:sceneId/generate", () => {
     expect(body.error.code).toBe("invalid_request");
   });
 
-  it("6. missing token → 401 session_required", async () => {
+  it("6. POST generate succeeds without session token (Phase 3)", async () => {
     const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
@@ -389,32 +379,16 @@ describe("POST /api/scenes/:sceneId/generate", () => {
       body: JSON.stringify({ prompt: "test" }),
     });
 
-    expect(res.status).toBe(401);
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe("session_required");
-  });
-
-  it("7. wrong token → 403 session_rejected", async () => {
-    const { port } = await startTestServer();
-
-    const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
-      method: "POST",
-      token: "wrong-token",
-      origin: `http://127.0.0.1:${port}`,
-      body: JSON.stringify({ prompt: "test" }),
-    });
-
-    expect(res.status).toBe(403);
-    const body = res.body as { error: { code: string } };
-    expect(body.error.code).toBe("session_rejected");
+    expect(res.status).toBe(200);
+    const body = res.body as { ok: boolean };
+    expect(body.ok).toBe(true);
   });
 
   it("8. route not registered when generateSceneImage dep is absent", async () => {
-    const { port, token } = await startTestServer({ withoutGenerate: true });
+    const { port } = await startTestServer({ withoutGenerate: true });
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
       method: "POST",
-      token,
       origin: "http://127.0.0.1:3210",
       body: JSON.stringify({ prompt: "test" }),
     });
@@ -424,11 +398,10 @@ describe("POST /api/scenes/:sceneId/generate", () => {
   });
 
   it("9. 405 Allow header for GET on POST-only route", async () => {
-    const { port, token } = await startTestServer();
+    const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
       method: "GET",
-      token,
       origin: `http://127.0.0.1:${port}`,
     });
 
@@ -437,11 +410,10 @@ describe("POST /api/scenes/:sceneId/generate", () => {
   });
 
   it("10. default aspectRatio is 9:16 when not specified", async () => {
-    const { port, token } = await startTestServer();
+    const { port } = await startTestServer();
 
     const res = await httpRequest(port, "/api/scenes/scene-001/generate", {
       method: "POST",
-      token,
       origin: `http://127.0.0.1:${port}`,
       body: JSON.stringify({ prompt: "test prompt" }),
     });

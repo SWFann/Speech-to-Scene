@@ -254,7 +254,6 @@ describe("Malformed percent-encoding in parameterized routes (M4-04BF P1-2)", ()
     const { status, body } = await httpRequest(port, `/api/scenes/${MALFORMED_SEGMENT}`, {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "test" } }),
     });
 
@@ -267,7 +266,6 @@ describe("Malformed percent-encoding in parameterized routes (M4-04BF P1-2)", ()
     const { status, body } = await httpRequest(port, `/api/scenes/${MALFORMED_SEGMENT}/queries`, {
       method: "PUT",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         queries: [{ id: "q-001", language: "en", query: "x", purpose: "main", enabled: true }],
       }),
@@ -282,7 +280,6 @@ describe("Malformed percent-encoding in parameterized routes (M4-04BF P1-2)", ()
     const { status, body } = await httpRequest(port, `/api/scenes/${MALFORMED_SEGMENT}`, {
       method: "GET",
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
 
     // Should be 400 (malformed encoding detected before 405/404 fallthrough),
@@ -296,7 +293,6 @@ describe("Malformed percent-encoding in parameterized routes (M4-04BF P1-2)", ()
     const { status, body } = await httpRequest(port, `/api/scenes/${MALFORMED_SEGMENT}/queries`, {
       method: "DELETE",
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
 
     expect(status).toBe(400);
@@ -321,7 +317,6 @@ describe("Malformed percent-encoding in parameterized routes (M4-04BF P1-2)", ()
     const { status } = await httpRequest(port, "/api/scenes/%73%63%65%6e%65%2d%30%30%31", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "test" } }),
     });
 

@@ -1,27 +1,21 @@
 /**
  * Minimal local HTTP review server for Speech-to-Scene.
  *
- * Security flow (M4-02F1+):
- * - Host Gate runs BEFORE route matching (pre-routing)
+ * Phase 3 security model:
+ * - Loopback binding (127.0.0.1 only) — never exposed to the network
+ * - Host Gate runs BEFORE route matching (pre-routing, prevents DNS rebinding)
  * - Route matching and 404/405 happen AFTER Host validation
- * - Origin/Token validation runs only for matched mutating routes (post-routing)
+ * - Origin validation runs only for matched mutating routes (post-routing, prevents CSRF)
+ * - Session token removed — loopback + Host + Origin is sufficient
  * - All responses include security headers
- * - Session token is validated at startup (not just on requests)
  *
- * M4-03B: GET /api/project requires session token (GET is not mutating,
- * but the project endpoint is token-gated to prevent unauthenticated access
- * to project data).
+ * Phase 3 multi-project support:
+ * - `workspaceRoot` is the parent directory of all projects
+ * - `projectRoot` is the current active project (mutable at runtime)
+ * - `POST /api/project/switch` updates the active project root
+ * - `DELETE /api/project` deletes the active project and sets it to null
  *
  * Uses Node built-in `node:http`; no web framework.
- *
- * Security notes:
- * - Binds to loopback (127.0.0.1) by default.
- * - Rejects non-loopback host at startup.
- * - All responses include security headers.
- * - No arbitrary filesystem paths are accepted from clients.
- * - Session token is generated at startup and returned to the CLI caller.
- * - Token is NOT exposed in GET /api/health or error responses.
- * - projectRoot is fixed at startup; clients cannot change it via query/body/header.
  *
  * M5-03: Static file serving for the React Review Board.
  * - If `staticRoot` is provided in the config, non-API GET/HEAD paths are
@@ -41,7 +35,6 @@ import type {
   ReviewServerDependencies,
 } from "./review-types.js";
 import { validateConfiguredBindHost } from "./security/host-validation.js";
-import { validateConfiguredToken, generateSessionToken } from "./security/session-token.js";
 import {
   createRoutes,
   matchRoute,
@@ -60,7 +53,6 @@ import {
   type RequestSecurityConfig,
 } from "./request-security.js";
 import { ERROR_NOT_FOUND, ERROR_METHOD_NOT_ALLOWED, ERROR_INVALID_REQUEST } from "./http-errors.js";
-import { validateSessionToken } from "./security/session-token.js";
 import { isApiPath, serveStatic } from "./static-serving.js";
 
 // ---------------------------------------------------------------------------
@@ -82,19 +74,28 @@ const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 // Path helpers
 // ---------------------------------------------------------------------------
 
+function resolveWorkspaceRoot(workspaceRoot: string): string {
+  return path.resolve(workspaceRoot);
+}
+
 function resolveProjectRoot(projectRoot: string): string {
   return path.resolve(projectRoot);
 }
 
 // ---------------------------------------------------------------------------
-// Token-gated routes (M4-03B)
+// Mutable project root reference
 // ---------------------------------------------------------------------------
 
 /**
- * Routes that require a valid session token even for GET methods.
- * These expose project data that must not be accessible without authentication.
+ * A mutable container for the current active project root.
+ *
+ * Phase 3: the active project can change at runtime via
+ * POST /api/project/switch. Routes read from this ref via a getter
+ * function so they always see the current value.
  */
-const TOKEN_GATED_PATHS = new Set(["/api/project"]);
+export interface ProjectRootRef {
+  current: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Request handler factory
@@ -109,17 +110,20 @@ const TOKEN_GATED_PATHS = new Set(["/api/project"]);
  * 3. Pre-routing Host Gate (validates Host on ALL requests)
  * 4. Route matching (path + method)
  * 5. If no route match: 404 (unknown path) or 405 (known path, wrong method)
- * 6. Token gate for token-gated GET routes
- * 7. Post-routing gate: Origin + Token (for mutating methods only)
- * 8. Execute route handler
+ * 6. Post-routing gate: Origin (for mutating methods only)
+ * 7. Execute route handler
+ *
+ * Phase 3: token gate removed. projectRoot is now a mutable ref.
  */
 function createRequestHandler(
   config: ReviewServerConfig,
+  projectRootRef: ProjectRootRef,
   boundPortRef: { current: number },
   deps?: ReviewServerDependencies,
 ): http.RequestListener {
   const routes = createRoutes({
-    projectRoot: config.projectRoot,
+    workspaceRoot: config.workspaceRoot,
+    projectRootRef,
     host: config.host,
     getBoundPort: () => boundPortRef.current,
     version: config.version,
@@ -135,7 +139,6 @@ function createRequestHandler(
     const securityConfig: RequestSecurityConfig = {
       boundHost: config.host,
       boundPort: boundPortRef.current,
-      boundToken: config.token,
     };
 
     // 1. Apply base security headers to every response
@@ -205,31 +208,14 @@ function createRequestHandler(
       return;
     }
 
-    // 4. Token gate for token-gated GET routes (before post-routing Origin/Token gate)
-    if (TOKEN_GATED_PATHS.has(urlPath) && method === "GET") {
-      const tokenResult = validateSessionToken(req, config.token);
-      if (!tokenResult.valid) {
-        const statusCode = tokenResult.reason === "session_required" ? 401 : 403;
-        const errorCode = tokenResult.reason ?? "session_rejected";
-        sendError(
-          res,
-          statusCode,
-          errorCode,
-          statusCode === 401 ? "Session token is required" : "Session token is invalid",
-          statusCode === 401 ? "Provide X-S2S-Session header" : undefined,
-        );
-        return;
-      }
-    }
-
-    // 5. Post-routing gate: method (defense-in-depth) + Origin/Token (mutating)
+    // 4. Post-routing gate: method (defense-in-depth) + Origin (mutating)
     const postRoutingResult = runPostRoutingGate(req, method, route.methods, securityConfig);
     if (!postRoutingResult.passed) {
       postRoutingResult.rejection!.apply(res);
       return;
     }
 
-    // 6. Execute route handler
+    // 5. Execute route handler
     try {
       const params = { pathParams: getMatchedParams(route) };
       const result = route.handler(req, res, params);
@@ -261,28 +247,26 @@ function createRequestHandler(
 /**
  * Starts the review server.
  *
- * The project root is resolved to an absolute path at startup. The server
- * binds only to loopback addresses.
+ * The workspace root and project root are resolved to absolute paths at
+ * startup. The server binds only to loopback addresses.
  *
- * Token handling:
- * - If `token` is provided, it is validated via `validateConfiguredToken`
- *   BEFORE the server binds to any port. Invalid tokens prevent startup.
- * - If `token` is not provided, a random UUID token is generated.
- * - Token validation errors never include the token itself.
+ * Phase 3:
+ * - Session token removed. Security relies on loopback + Host + Origin.
+ * - `workspaceRoot` is required for multi-project support.
+ * - `projectRoot` may be null (no active project → shows project list).
  *
- * Dependencies (M4-03B):
- * - `deps` contains the ProjectRepository and getReviewProject use case.
+ * Dependencies:
+ * - `deps` contains the ProjectRepository and use cases.
  * - If deps is omitted, only GET /api/health is available (backward compat).
  *
- * @param config - Server configuration. `token` is optional; a random token
- *   is generated if not provided. `version` defaults to `SERVER_VERSION`.
- * @param deps - Optional dependencies for M4-03B routes.
- * @returns A handle containing the bound port, session token, and close method.
- * @throws Error if the token fails validation or the host is not loopback.
+ * @param config - Server configuration. `version` defaults to `SERVER_VERSION`.
+ * @param deps - Optional dependencies for API routes.
+ * @returns A handle containing the bound port and close method.
+ * @throws Error if the host is not loopback.
  */
 export async function startReviewServer(
-  config: Omit<ReviewServerConfig, "token" | "version"> & {
-    token?: string;
+  config: Omit<ReviewServerConfig, "workspaceRoot" | "version"> & {
+    workspaceRoot?: string;
     version?: string;
   },
   deps?: ReviewServerDependencies,
@@ -290,26 +274,30 @@ export async function startReviewServer(
   // Validate host before binding
   validateConfiguredBindHost(config.host);
 
-  // Resolve project root to absolute, normalized path
-  const projectRoot = resolveProjectRoot(config.projectRoot);
+  // Resolve workspace root (defaults to parent of projectRoot)
+  const workspaceRoot = resolveWorkspaceRoot(
+    config.workspaceRoot ?? path.dirname(path.resolve(config.projectRoot)),
+  );
 
-  // Token: validate if provided, generate if not
-  const token = config.token ?? generateSessionToken();
-  if (config.token !== undefined) {
-    validateConfiguredToken(token);
-  }
+  // Resolve project root to absolute, normalized path
+  const initialProjectRoot = resolveProjectRoot(config.projectRoot);
 
   const fullConfig: ReviewServerConfig = {
-    projectRoot,
+    workspaceRoot,
+    projectRoot: initialProjectRoot,
     host: config.host,
     port: config.port,
-    token,
     version: config.version ?? SERVER_VERSION,
     ...(config.staticRoot !== undefined ? { staticRoot: config.staticRoot } : {}),
   };
 
+  // Phase 3: mutable project root ref for runtime switching
+  const projectRootRef: ProjectRootRef = { current: initialProjectRoot };
+
   const boundPortRef = { current: config.port };
-  const server = http.createServer(createRequestHandler(fullConfig, boundPortRef, deps));
+  const server = http.createServer(
+    createRequestHandler(fullConfig, projectRootRef, boundPortRef, deps),
+  );
 
   // Configure timeouts
   server.requestTimeout = REQUEST_TIMEOUT_MS;
@@ -333,7 +321,6 @@ export async function startReviewServer(
 
       resolve({
         port: boundPortRef.current,
-        token,
         close: (): Promise<void> =>
           new Promise<void>((closeResolve) => {
             server.close(() => closeResolve());
