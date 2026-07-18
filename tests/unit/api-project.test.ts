@@ -195,7 +195,6 @@ function makeTestProject(): SpeechToSceneProject {
           candidates: [],
           lastSearchedAt: FIXED_NOW,
         },
-        review: { kind: "pending" },
       },
     ],
   });
@@ -236,14 +235,6 @@ async function startTestServer(
     updateSceneQueries,
     searchSceneAssets: () =>
       Promise.reject(new Error("searchSceneAssets not configured for this test")),
-    selectCandidate: () =>
-      Promise.reject(new Error("selectCandidate not configured for this test")),
-    skipScene: () => Promise.reject(new Error("skipScene not configured for this test")),
-    attachLocalAsset: () =>
-      Promise.reject(new Error("attachLocalAsset not configured for this test")),
-    assetWriter: {
-      writeAsset: () => Promise.reject(new Error("assetWriter not configured")),
-    },
   };
 
   const handle = await startReviewServer(

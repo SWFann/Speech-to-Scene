@@ -99,7 +99,6 @@ function makeValidProject(): SpeechToSceneProject {
           candidates: [],
           lastSearchedAt: FIXED_NOW,
         },
-        review: { kind: "pending" },
       },
     ],
   });
@@ -564,7 +563,7 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
     try {
       const host = `127.0.0.1:${server.port}`;
 
-      // 1. POST /api/scenes/scene-001/search — search with fixture provider
+      // 1. POST /api/scenes/scene-001/search — multi-source search (fixture)
       const searchRes = await httpRequestWithBody(
         server.port,
         "POST",
@@ -572,7 +571,7 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
         {
           host,
           token: TOKEN,
-          body: JSON.stringify({ provider: "fixture" }),
+          body: JSON.stringify({ providers: ["fixture"], refresh: true }),
         },
       );
       expect(searchRes.status).toBe(200);
@@ -588,9 +587,17 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
       const searchProject = (getAfterSearch.body as { project: unknown }).project;
       const searchScenes = (searchProject as { scenes: unknown[] }).scenes;
       const searchScene0 = searchScenes[0] as {
-        search: { candidates: unknown[]; lastSearchedAt: string | null };
+        search: {
+          candidates: Array<{ kind: string }>;
+          lastSearchedAt: string | null;
+        };
       };
       expect(searchScene0.search.candidates.length).toBeGreaterThan(0);
+      // Phase 1 redesign: every candidate carries a `kind` discriminator
+      // ("asset" for library results, "link" for platform search-link cards).
+      for (const candidate of searchScene0.search.candidates) {
+        expect(candidate.kind === "asset" || candidate.kind === "link").toBe(true);
+      }
       expect(searchScene0.search.lastSearchedAt).not.toBeNull();
 
       // 3. Verify response does not leak sensitive info
@@ -635,291 +642,8 @@ describe("dist smoke test — Scene Search API (M4-05)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Review Decision (skip) lifecycle smoke test (M4-06)
+// Helper: HTTP request with Buffer body (kept for future use)
 // ---------------------------------------------------------------------------
-
-describe("dist smoke test — Review Decision API (M4-06)", () => {
-  it("PUT skip, verify persistence via GET, SIGINT shutdown", async () => {
-    // Ensure dist is built fresh
-    try {
-      execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() });
-    } catch {
-      throw new Error("pnpm build failed — cannot run dist smoke without fresh build");
-    }
-
-    // Create temp project
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-smoke-decision-"));
-    tempDirs.push(dir);
-    await fs.writeFile(
-      path.join(dir, PROJECT_FILE_NAME),
-      JSON.stringify(makeValidProject(), null, 2) + "\n",
-      "utf-8",
-    );
-
-    const TOKEN = "smoke-decision-token";
-    const server = await spawnDistServer(dir, TOKEN);
-
-    try {
-      const host = `127.0.0.1:${server.port}`;
-
-      // 1. PUT /api/scenes/scene-001/skip — skip the scene
-      const skipRes = await httpRequestWithBody(server.port, "PUT", "/api/scenes/scene-001/skip", {
-        host,
-        token: TOKEN,
-        body: JSON.stringify({ note: "No external asset needed" }),
-      });
-      expect(skipRes.status).toBe(200);
-      expect((skipRes.body as { ok: boolean }).ok).toBe(true);
-
-      // 2. GET /api/project — verify skip persisted
-      const getAfterSkip = await httpGet(server.port, "/api/project", {
-        host,
-        token: TOKEN,
-      });
-      expect(getAfterSkip.status).toBe(200);
-      // Step-by-step casts to avoid parser issues with nested generics
-      const skipProject = (getAfterSkip.body as { project: unknown }).project;
-      const skipScenes = (skipProject as { scenes: unknown[] }).scenes;
-      const skipScene0 = skipScenes[0] as {
-        review: {
-          kind: string;
-          decidedAt?: string;
-          note?: string;
-        };
-      };
-      expect(skipScene0.review.kind).toBe("skipped");
-      expect(skipScene0.review.decidedAt).toBeTruthy();
-      expect(skipScene0.review.note).toBe("No external asset needed");
-
-      // 3. Verify response does not leak sensitive info
-      const bodyStr = JSON.stringify(skipRes.body);
-      expect(bodyStr).not.toContain(dir);
-      expect(bodyStr).not.toContain(TOKEN);
-
-      // 4. SIGINT clean shutdown (POSIX only)
-      if (process.platform !== "win32") {
-        const exitCode = await new Promise<number>((resolve) => {
-          server.child.on("exit", (code) => resolve(code ?? -1));
-          server.child.kill("SIGINT");
-          setTimeout(() => {
-            server.child.kill("SIGKILL");
-            resolve(-1);
-          }, 10000);
-        });
-        expect(exitCode).toBe(0);
-      } else {
-        await server.kill();
-        expect(server.child.exitCode).not.toBeNull();
-      }
-
-      // 5. stderr has no unhandled exceptions
-      const stderr = server.stderrChunks.join("");
-      expect(stderr).not.toContain("Unhandled");
-      expect(stderr).not.toContain("TypeError");
-    } finally {
-      if (server.child.exitCode === null && server.child.pid !== null) {
-        await server.kill();
-      }
-    }
-  }, 30000);
-});
-
-// ---------------------------------------------------------------------------
-// Helper: HTTP request with Buffer body (for multipart uploads)
-// ---------------------------------------------------------------------------
-
-async function httpRequestWithBuffer(
-  port: number,
-  method: string,
-  urlPath: string,
-  options: {
-    host?: string;
-    token?: string;
-    body?: Buffer;
-    contentType?: string;
-  } = {},
-): Promise<HttpResponse> {
-  return new Promise((resolve, reject) => {
-    const headers: Record<string, string> = {
-      "content-type": options.contentType ?? "application/json",
-      ...(options.host !== undefined ? { host: options.host } : {}),
-      ...(options.token !== undefined ? { "x-s2s-session": options.token } : {}),
-    };
-    if (options.body !== undefined) {
-      headers["content-length"] = String(options.body.length);
-    }
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        port,
-        path: urlPath,
-        method,
-        headers,
-        timeout: 5000,
-      },
-      (res) => {
-        const chunks: Array<Buffer | Uint8Array> = [];
-        res.on("data", (chunk) => chunks.push(chunk as Buffer | Uint8Array));
-        res.on("end", () => {
-          const raw = Buffer.concat(chunks).toString("utf-8");
-          let body: unknown;
-          try {
-            body = JSON.parse(raw);
-          } catch {
-            body = raw;
-          }
-          resolve({ status: res.statusCode ?? 0, body, headers: {} });
-        });
-      },
-    );
-    req.on("error", reject);
-    req.on("timeout", () => {
-      req.destroy();
-      reject(new Error("Request timeout"));
-    });
-    if (options.body !== undefined) {
-      req.write(options.body);
-    }
-    req.end();
-  });
-}
-
-/** Minimal valid PNG: 1x1 transparent pixel. */
-const SMOKE_PNG = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
-  0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
-  0x42, 0x60, 0x82,
-]);
-
-function buildMultipartUpload(fileData: Buffer, boundary: string, filename = "upload.png"): Buffer {
-  const parts: Buffer[] = [];
-  parts.push(Buffer.from(`--${boundary}\r\n`));
-  parts.push(
-    Buffer.from(
-      `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
-        `Content-Type: image/png\r\n\r\n`,
-    ),
-  );
-  parts.push(fileData);
-  parts.push(Buffer.from("\r\n"));
-  parts.push(Buffer.from(`--${boundary}--\r\n`));
-  return Buffer.concat(parts);
-}
-
-// ---------------------------------------------------------------------------
-// Local Asset Upload lifecycle smoke test (M4-07)
-// ---------------------------------------------------------------------------
-
-describe("dist smoke test — Local Asset Upload API (M4-07)", () => {
-  it("POST local-asset (PNG), verify persistence via GET, SIGINT shutdown", async () => {
-    // Ensure dist is built fresh
-    try {
-      execSync("pnpm build", { stdio: "pipe", cwd: process.cwd() });
-    } catch {
-      throw new Error("pnpm build failed — cannot run dist smoke without fresh build");
-    }
-
-    // Create temp project
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "s2s-smoke-upload-"));
-    tempDirs.push(dir);
-    await fs.writeFile(
-      path.join(dir, PROJECT_FILE_NAME),
-      JSON.stringify(makeValidProject(), null, 2) + "\n",
-      "utf-8",
-    );
-
-    const TOKEN = "smoke-upload-token";
-    const server = await spawnDistServer(dir, TOKEN);
-
-    try {
-      const host = `127.0.0.1:${server.port}`;
-      const BOUNDARY = "----smoke-boundary-test";
-
-      // 1. POST /api/scenes/scene-001/local-asset — upload PNG
-      const uploadBody = buildMultipartUpload(SMOKE_PNG, BOUNDARY);
-      const uploadRes = await httpRequestWithBuffer(
-        server.port,
-        "POST",
-        "/api/scenes/scene-001/local-asset",
-        {
-          host,
-          token: TOKEN,
-          contentType: `multipart/form-data; boundary=${BOUNDARY}`,
-          body: uploadBody,
-        },
-      );
-      expect(uploadRes.status).toBe(200);
-      expect((uploadRes.body as { ok: boolean }).ok).toBe(true);
-
-      // 2. Verify file was written to assets/scene-001/
-      const assetsDir = path.join(dir, "assets", "scene-001");
-      const files = await fs.readdir(assetsDir);
-      expect(files).toHaveLength(1);
-      expect(files[0]!.endsWith(".png")).toBe(true);
-
-      // 3. GET /api/project — verify localAsset persisted
-      const getRes = await httpGet(server.port, "/api/project", {
-        host,
-        token: TOKEN,
-      });
-      expect(getRes.status).toBe(200);
-      const uploadProject = (getRes.body as { project: unknown }).project;
-      const uploadScenes = (uploadProject as { scenes: unknown[] }).scenes;
-      const uploadScene0 = uploadScenes[0] as {
-        review: {
-          kind: string;
-          localAsset?: {
-            relativePath: string;
-            mimeType: string;
-            sha256: string;
-            sizeBytes: number;
-            provenance: { kind: string };
-          };
-        };
-      };
-      expect(uploadScene0.review.kind).toBe("local_asset_attached");
-      expect(uploadScene0.review.localAsset).toBeDefined();
-      expect(uploadScene0.review.localAsset!.relativePath).toMatch(/^assets\/scene-001\//);
-      expect(uploadScene0.review.localAsset!.mimeType).toBe("image/png");
-      expect(uploadScene0.review.localAsset!.sha256).toMatch(/^[a-f0-9]{64}$/);
-      expect(uploadScene0.review.localAsset!.sizeBytes).toBe(SMOKE_PNG.length);
-      expect(uploadScene0.review.localAsset!.provenance.kind).toBe("user_owned");
-
-      // 4. Verify response does not leak absolute paths or token
-      const bodyStr = JSON.stringify(uploadRes.body);
-      expect(bodyStr).not.toContain(dir);
-      expect(bodyStr).not.toContain(TOKEN);
-      expect(bodyStr).not.toContain("/tmp/");
-
-      // 5. SIGINT clean shutdown (POSIX only)
-      if (process.platform !== "win32") {
-        const exitCode = await new Promise<number>((resolve) => {
-          server.child.on("exit", (code) => resolve(code ?? -1));
-          server.child.kill("SIGINT");
-          setTimeout(() => {
-            server.child.kill("SIGKILL");
-            resolve(-1);
-          }, 10000);
-        });
-        expect(exitCode).toBe(0);
-      } else {
-        await server.kill();
-        expect(server.child.exitCode).not.toBeNull();
-      }
-
-      // 6. stderr has no unhandled exceptions
-      const stderr = server.stderrChunks.join("");
-      expect(stderr).not.toContain("Unhandled");
-      expect(stderr).not.toContain("TypeError");
-    } finally {
-      if (server.child.exitCode === null && server.child.pid !== null) {
-        await server.kill();
-      }
-    }
-  }, 30000);
-});
 
 // ---------------------------------------------------------------------------
 // Static serving smoke test (M5-03)

@@ -1,20 +1,24 @@
 /**
  * Unit tests for the getReviewProject Application Use Case.
  *
+ * Phase 1 material-discovery redesign: the review state machine has been
+ * removed. Candidates are a discriminated union (asset | link). No review
+ * decision or local asset is mapped.
+ *
  * Tests verify:
  * - Project with scenes and candidates maps correctly
  * - Empty project (no scenes) maps correctly
  * - No absolute projectRoot in output
  * - No Token/API key/cache path in output
- * - Local asset paths remain relative
  * - Source path remains relative (not absolute)
- * - Rights/sourcePageUrl evidence preserved
+ * - Rights/sourcePageUrl evidence preserved (asset-kind candidates)
  * - Derived status consistent with domain status rules
  * - repository.load called exactly once
  * - repository.save never called
  * - repository load error propagates
  * - Input object not modified
  * - Same input → deep-equal output
+ * - Link-kind candidates map correctly
  */
 
 import { describe, expect, it } from "vitest";
@@ -154,6 +158,7 @@ function makePlannedProject(): SpeechToSceneProject {
           ],
           candidates: [
             {
+              kind: "asset" as const,
               id: "cand-001",
               provider: {
                 id: "fixture",
@@ -195,41 +200,101 @@ function makePlannedProject(): SpeechToSceneProject {
           ],
           lastSearchedAt: FIXED_NOW,
         },
-        review: {
-          kind: "pending",
-        },
       },
     ],
   });
 }
 
-function makeProjectWithLocalAsset(): SpeechToSceneProject {
-  const base = makePlannedProject();
-  // Modify scene to have a local_asset_attached review
-  const scene = base.scenes[0]!;
-  return {
-    ...base,
+/** Builds a project that includes both asset-kind and link-kind candidates. */
+function makeProjectWithLinkCandidates(): SpeechToSceneProject {
+  return SpeechToSceneProjectSchema.parse({
+    schemaVersion: "0.1",
+    project: {
+      id: "proj-link-00000000",
+      title: "Link Candidate Project",
+      createdAt: FIXED_NOW,
+      updatedAt: FIXED_NOW,
+      language: "zh-CN",
+      aspectRatio: "9:16",
+      style: "knowledge",
+      assetUsePolicy: { intendedUse: "commercial_capable", willModify: true },
+    },
+    source: {
+      path: "script.md",
+      originalFileName: "script.md",
+      sha256: "c".repeat(64),
+      encoding: "utf-8",
+      sizeBytes: 100,
+      textLengthUtf16: 100,
+      offsetUnit: "utf16_code_unit",
+      blocks: [
+        { id: "block-001", order: 1, kind: "paragraph", sourceRange: { start: 0, end: 100 } },
+      ],
+    },
+    generation: {
+      plannerProvider: "fixture",
+      promptVersion: "v1",
+      plannerOutputSchemaVersion: "0.1",
+      sourceBlockVersion: "0.1",
+      generatedAt: FIXED_NOW,
+    },
     scenes: [
       {
-        ...scene,
-        review: {
-          kind: "local_asset_attached" as const,
-          localAsset: {
-            relativePath: "assets/scene-001/file.png",
-            originalFileName: "file.png",
-            mimeType: "image/png",
-            sizeBytes: 1024,
-            sha256: "c".repeat(64),
-            importedAt: FIXED_NOW,
-            provenance: {
-              kind: "user_owned" as const,
-              note: "User uploaded",
+        id: "scene-001",
+        order: 1,
+        sourceAnchor: {
+          strategy: "source-blocks-v1",
+          sourceBlockIds: ["block-001"],
+          startQuote: "Hello",
+          endQuote: "world",
+        },
+        sourceRange: { start: 0, end: 100 },
+        text: "Hello world content for testing.",
+        summary: "Opening scene",
+        narrativeRole: "hook",
+        visualPlan: {
+          decision: "stock_asset",
+          rationale: "Need a visual",
+          preferredMedia: ["photo"],
+          visualKeywords: ["technology"],
+        },
+        search: {
+          queries: [
+            {
+              id: "q-001",
+              language: "en" as const,
+              query: "technology photo",
+              purpose: "main visual",
+              enabled: true,
             },
-          },
+          ],
+          candidates: [
+            {
+              kind: "link" as const,
+              id: "link-xiaohongshu-q-001",
+              platform: "xiaohongshu",
+              searchUrl: "https://www.xiaohongshu.com/search_result?keyword=technology%20photo",
+              keyword: "technology photo",
+              retrievedAt: FIXED_NOW,
+              matchedQueryId: "q-001",
+              rank: 1,
+            },
+            {
+              kind: "link" as const,
+              id: "link-douyin-q-001",
+              platform: "douyin",
+              searchUrl: "https://www.douyin.com/search/technology%20photo",
+              keyword: "technology photo",
+              retrievedAt: FIXED_NOW,
+              matchedQueryId: "q-001",
+              rank: 2,
+            },
+          ],
+          lastSearchedAt: FIXED_NOW,
         },
       },
     ],
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -262,11 +327,14 @@ describe("getReviewProject", () => {
     expect(scene.status).toBe("candidates_ready");
 
     const cand = scene.search.candidates[0]!;
-    expect(cand.id).toBe("cand-001");
-    expect(cand.sourcePageUrl).toBe("https://example.com/photo");
-    expect(cand.rights.status).toBe("open_license");
-    expect(cand.rights.licenseCode).toBe("CC-BY-4.0");
-    expect(cand.rights.evidence.referenceUrl).toBe("https://example.com/license");
+    expect(cand.kind).toBe("asset");
+    if (cand.kind === "asset") {
+      expect(cand.id).toBe("cand-001");
+      expect(cand.sourcePageUrl).toBe("https://example.com/photo");
+      expect(cand.rights.status).toBe("open_license");
+      expect(cand.rights.licenseCode).toBe("CC-BY-4.0");
+      expect(cand.rights.evidence.referenceUrl).toBe("https://example.com/license");
+    }
   });
 
   it("maps an empty project (no scenes) correctly", async () => {
@@ -306,20 +374,6 @@ describe("getReviewProject", () => {
     expect(json).not.toContain("secret");
   });
 
-  it("keeps local asset paths relative", async () => {
-    const repo = new InMemoryRepository();
-    repo.setProject(ROOT, makeProjectWithLocalAsset());
-
-    const view = await getReviewProject(ROOT, repo);
-
-    const scene = view.scenes[0]!;
-    expect(scene.review.kind).toBe("local_asset_attached");
-    if (scene.review.kind === "local_asset_attached") {
-      expect(scene.review.localAsset.relativePath).toBe("assets/scene-001/file.png");
-      expect(JSON.stringify(view)).not.toContain("/test/project");
-    }
-  });
-
   it("keeps source path relative (not absolute)", async () => {
     const repo = new InMemoryRepository();
     repo.setProject(ROOT, makePlannedProject());
@@ -330,18 +384,21 @@ describe("getReviewProject", () => {
     expect(JSON.stringify(view)).not.toContain("/test/project/script.md");
   });
 
-  it("preserves rights and sourcePageUrl evidence", async () => {
+  it("preserves rights and sourcePageUrl evidence (asset-kind candidates)", async () => {
     const repo = new InMemoryRepository();
     repo.setProject(ROOT, makePlannedProject());
 
     const view = await getReviewProject(ROOT, repo);
 
     const cand = view.scenes[0]!.search.candidates[0]!;
-    expect(cand.sourcePageUrl).toBe("https://example.com/photo");
-    expect(cand.rights.evidence.referenceUrl).toBe("https://example.com/license");
-    expect(cand.rights.evidence.fields).toEqual({ source: "provider", version: "4.0" });
-    expect(cand.rights.licenseCode).toBe("CC-BY-4.0");
-    expect(cand.rights.attributionText).toBe("Photo by Test Creator");
+    expect(cand.kind).toBe("asset");
+    if (cand.kind === "asset") {
+      expect(cand.sourcePageUrl).toBe("https://example.com/photo");
+      expect(cand.rights.evidence.referenceUrl).toBe("https://example.com/license");
+      expect(cand.rights.evidence.fields).toEqual({ source: "provider", version: "4.0" });
+      expect(cand.rights.licenseCode).toBe("CC-BY-4.0");
+      expect(cand.rights.attributionText).toBe("Photo by Test Creator");
+    }
   });
 
   it("derives scene status consistent with domain rules", async () => {
@@ -350,10 +407,10 @@ describe("getReviewProject", () => {
 
     const view = await getReviewProject(ROOT, repo);
 
-    // pending + has candidates → candidates_ready
+    // has candidates → candidates_ready
     expect(view.scenes[0]!.status).toBe("candidates_ready");
     expect(view.sceneStatuses[0]!.status).toBe("candidates_ready");
-    expect(view.producingSceneCount).toBe(1);
+    expect(view.searchedSceneCount).toBe(1);
   });
 
   it("calls repository.load exactly once", async () => {
@@ -421,101 +478,50 @@ describe("getReviewProject", () => {
     expect(view.lastGenerationAt).toBe(FIXED_NOW);
   });
 
-  it("maps candidate_selected review with local asset", async () => {
+  it("maps link-kind candidates correctly", async () => {
     const repo = new InMemoryRepository();
-    const project = makePlannedProject();
-    // Change review to candidate_selected with local asset
-    const scene = project.scenes[0]!;
-    const modifiedProject: SpeechToSceneProject = {
-      ...project,
-      scenes: [
-        {
-          ...scene,
-          review: {
-            kind: "candidate_selected" as const,
-            selection: {
-              selectedAt: FIXED_NOW,
-              candidate: scene.search.candidates[0],
-              rightsAcknowledgement: {
-                acknowledgedAt: FIXED_NOW,
-                warningCodes: ["test-warning"],
-              },
-            },
-            localAsset: {
-              relativePath: "assets/scene-001/downloaded.png",
-              originalFileName: "downloaded.png",
-              mimeType: "image/png",
-              sizeBytes: 2048,
-              sha256: "d".repeat(64),
-              importedAt: FIXED_NOW,
-              provenance: {
-                kind: "selected_candidate" as const,
-                candidateId: "cand-001",
-              },
-            },
-          },
-        },
-      ],
-    } as SpeechToSceneProject;
-    repo.setProject(ROOT, modifiedProject);
+    repo.setProject(ROOT, makeProjectWithLinkCandidates());
 
     const view = await getReviewProject(ROOT, repo);
 
-    const sceneView = view.scenes[0]!;
-    expect(sceneView.review.kind).toBe("candidate_selected");
-    if (sceneView.review.kind === "candidate_selected") {
-      expect(sceneView.review.selection.candidate.id).toBe("cand-001");
-      expect(sceneView.review.selection.rightsAcknowledgement?.warningCodes).toEqual([
-        "test-warning",
-      ]);
-      expect(sceneView.review.localAsset?.relativePath).toBe("assets/scene-001/downloaded.png");
-      expect(sceneView.review.localAsset?.provenance.kind).toBe("selected_candidate");
+    const scene = view.scenes[0]!;
+    expect(scene.search.candidateCount).toBe(2);
+
+    const cand0 = scene.search.candidates[0]!;
+    expect(cand0.kind).toBe("link");
+    if (cand0.kind === "link") {
+      expect(cand0.platform).toBe("xiaohongshu");
+      expect(cand0.keyword).toBe("technology photo");
+      expect(cand0.searchUrl).toContain("xiaohongshu.com");
     }
-    expect(sceneView.status).toBe("local_attached");
+
+    const cand1 = scene.search.candidates[1]!;
+    expect(cand1.kind).toBe("link");
+    if (cand1.kind === "link") {
+      expect(cand1.platform).toBe("douyin");
+      expect(cand1.searchUrl).toContain("douyin.com");
+    }
+
+    // Link candidates still count toward candidates_ready status
+    expect(scene.status).toBe("candidates_ready");
   });
 
-  it("maps skipped review correctly", async () => {
-    const repo = new InMemoryRepository();
-    const project = makePlannedProject();
-    const scene = project.scenes[0]!;
-    const modifiedProject: SpeechToSceneProject = {
-      ...project,
-      scenes: [
-        {
-          ...scene,
-          review: {
-            kind: "skipped" as const,
-            decidedAt: FIXED_NOW,
-            note: "Not needed",
-          },
-        },
-      ],
-    };
-    repo.setProject(ROOT, modifiedProject);
-
-    const view = await getReviewProject(ROOT, repo);
-
-    const sceneView = view.scenes[0]!;
-    expect(sceneView.review.kind).toBe("skipped");
-    if (sceneView.review.kind === "skipped") {
-      expect(sceneView.review.decidedAt).toBe(FIXED_NOW);
-      expect(sceneView.review.note).toBe("Not needed");
-    }
-    expect(sceneView.status).toBe("skipped");
-  });
-
-  it("preserves provider snapshot fields", async () => {
+  it("preserves provider snapshot fields (asset-kind candidates)", async () => {
     const repo = new InMemoryRepository();
     repo.setProject(ROOT, makePlannedProject());
 
     const view = await getReviewProject(ROOT, repo);
 
-    const provider = view.scenes[0]!.search.candidates[0]!.provider;
-    expect(provider.id).toBe("fixture");
-    expect(provider.name).toBe("Fixture Provider");
-    expect(provider.homepageUrl).toBe("https://example.com");
-    expect(provider.termsUrl).toBe("https://example.com/terms");
-    expect(provider.policyRevision).toBe("v1");
+    const cand = view.scenes[0]!.search.candidates[0]!;
+    expect(cand.kind).toBe("asset");
+    if (cand.kind === "asset") {
+      const provider = cand.provider;
+      expect(provider.id).toBe("fixture");
+      expect(provider.name).toBe("Fixture Provider");
+      expect(provider.homepageUrl).toBe("https://example.com");
+      expect(provider.termsUrl).toBe("https://example.com/terms");
+      expect(provider.policyRevision).toBe("v1");
+    }
   });
 
   it("does not return a Zod output schema — persisted schema is sole source of truth", () => {

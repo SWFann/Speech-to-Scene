@@ -5,16 +5,15 @@
  * function. This keeps the persisted schema minimal and allows status logic
  * to evolve without migration.
  *
- * Scene status priority:
- * 1. decision has localAsset → `local_attached`
- * 2. candidate_selected → `selected`
- * 3. skipped → `skipped`
- * 4. candidates non-empty → `candidates_ready`
- * 5. otherwise → `pending`
+ * Scene status (Phase 1 material-discovery redesign):
+ * 1. candidates non-empty (asset or link) → `candidates_ready`
+ * 2. otherwise → `pending`
+ *
+ * The review state machine (selected/skipped/local_attached) has been
+ * removed; search results are browse-only and no decision is persisted.
  */
 
 import type { SpeechToSceneProject } from "./project-schema.js";
-import type { ReviewDecision } from "./scene-schema.js";
 
 // ---------------------------------------------------------------------------
 // Status types
@@ -30,13 +29,15 @@ import type { ReviewDecision } from "./scene-schema.js";
 export type ProjectStatusValue = "created" | "planned";
 
 /**
- * Per-scene review status.
+ * Per-scene search status.
+ *
+ * - `pending`: no search candidates yet.
+ * - `candidates_ready`: the scene has been searched and has candidates.
  */
-export type SceneStatusValue =
-  "pending" | "candidates_ready" | "selected" | "skipped" | "local_attached";
+export type SceneStatusValue = "pending" | "candidates_ready";
 
 /**
- * Status of a single scene derived from its review decision.
+ * Status of a single scene derived from its search state.
  */
 export type SceneStatus = {
   sceneId: string;
@@ -50,7 +51,8 @@ export type SceneStatus = {
 export type ProjectStatus = {
   status: ProjectStatusValue;
   sceneCount: number;
-  producingSceneCount: number;
+  /** Scenes that have been searched (have candidates). */
+  searchedSceneCount: number;
   lastGenerationAt: string | null;
   scenes: SceneStatus[];
 };
@@ -60,43 +62,14 @@ export type ProjectStatus = {
 // ---------------------------------------------------------------------------
 
 /**
- * Derives the review status of a single scene from its review decision
- * and search state.
+ * Derives the search status of a single scene from its candidate state.
  *
  * Scene status priority:
- * 1. review decision is local_asset_attached → `local_attached`
- * 2. review decision is candidate_selected with localAsset → `local_attached`
- * 3. review decision is candidate_selected → `selected`
- * 4. review decision is skipped → `skipped`
- * 5. scene has candidates (candidates.length > 0) → `candidates_ready`
- * 6. otherwise → `pending`
+ * 1. scene has candidates (candidates.length > 0) → `candidates_ready`
+ * 2. otherwise → `pending`
  */
-function deriveSceneReviewStatus(review: ReviewDecision, hasCandidates: boolean): SceneStatusValue {
-  switch (review.kind) {
-    case "pending":
-      if (hasCandidates) {
-        return "candidates_ready";
-      }
-      return "pending";
-
-    case "skipped":
-      return "skipped";
-
-    case "candidate_selected":
-      if (review.localAsset) {
-        return "local_attached";
-      }
-      return "selected";
-
-    case "local_asset_attached":
-      return "local_attached";
-
-    default: {
-      // Exhaustiveness check: satisfies the type checker
-      const _exhaustive: never = review;
-      return _exhaustive;
-    }
-  }
+function deriveSceneStatus(hasCandidates: boolean): SceneStatusValue {
+  return hasCandidates ? "candidates_ready" : "pending";
 }
 
 // ---------------------------------------------------------------------------
@@ -123,15 +96,15 @@ export function getProjectStatus(project: SpeechToSceneProject): ProjectStatus {
   const sceneStatuses: SceneStatus[] = scenes.map((scene) => ({
     sceneId: scene.id,
     sceneOrder: scene.order,
-    status: deriveSceneReviewStatus(scene.review, scene.search.candidates.length > 0),
+    status: deriveSceneStatus(scene.search.candidates.length > 0),
   }));
 
-  const producingSceneCount = sceneStatuses.filter((s) => s.status !== "pending").length;
+  const searchedSceneCount = sceneStatuses.filter((s) => s.status === "candidates_ready").length;
 
   return {
     status,
     sceneCount: scenes.length,
-    producingSceneCount,
+    searchedSceneCount,
     lastGenerationAt: generation?.generatedAt ?? null,
     scenes: sceneStatuses,
   };

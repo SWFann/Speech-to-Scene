@@ -51,7 +51,6 @@ function buildValidProject(overrides?: any): any {
         ],
         candidates: [],
       },
-      review: { kind: "pending" },
     },
   ];
 
@@ -160,7 +159,6 @@ describe("validateProjectRelations", () => {
             visualKeywords: ["greeting"],
           },
           search: { queries: [], candidates: [] },
-          review: { kind: "pending" },
         },
         {
           id: "scene-002",
@@ -182,7 +180,6 @@ describe("validateProjectRelations", () => {
             visualKeywords: ["farewell"],
           },
           search: { queries: [], candidates: [] },
-          review: { kind: "pending" },
         },
       ],
     });
@@ -213,7 +210,6 @@ describe("validateProjectRelations", () => {
             visualKeywords: ["greeting"],
           },
           search: { queries: [], candidates: [] },
-          review: { kind: "pending" },
         },
       ],
     });
@@ -221,7 +217,7 @@ describe("validateProjectRelations", () => {
     expect(issues.some((i) => i.code === "anchor_block_not_found")).toBe(true);
   });
 
-  it("detects stock_asset scene without enabled query", () => {
+  it("accepts stock_asset scene without enabled query (gating removed)", () => {
     // stock_asset check is enforced by SceneSchema.superRefine at parse time.
     // Here we verify that a scene parsed with the check passing produces no issues.
     const project = buildValidProject({
@@ -257,13 +253,12 @@ describe("validateProjectRelations", () => {
             ],
             candidates: [],
           },
-          review: { kind: "pending" },
         },
       ],
     });
     const issues = validateProjectRelations(project);
-    // Should pass because the scene schema already enforced the stock_asset rule
-    expect(issues.some((i) => i.code === "stock_asset_no_enabled_query")).toBe(false);
+    // Phase 1 redesign: stock_asset gating removed, so no issues expected.
+    expect(issues).toHaveLength(0);
   });
 });
 
@@ -302,7 +297,6 @@ describe("validateSceneRelations", () => {
       queries: [],
       candidates: [],
     },
-    review: { kind: "pending" },
   });
 
   it("returns no issues for valid scene", () => {

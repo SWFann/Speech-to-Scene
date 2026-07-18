@@ -4,6 +4,11 @@
  * These types mirror the ReviewProjectView DTO from
  * src/application/get-review-project.ts but are declared independently
  * in the web app to avoid importing backend code.
+ *
+ * Phase 1 material-discovery redesign:
+ * - AssetCandidate is a discriminated union (asset | link).
+ * - The review state machine (selection/skip/local-asset) has been removed.
+ * - Scene status reflects search progress only (pending | candidates_ready).
  */
 
 export interface ReviewProviderSnapshotView {
@@ -36,7 +41,11 @@ export interface ReviewAssetRightsView {
   readonly evidence: ReviewRightsEvidenceView;
 }
 
-export interface ReviewAssetCandidateView {
+/**
+ * Asset-kind candidate (a library result with thumbnail/rights/dimensions).
+ */
+export interface ReviewAssetCandidateAssetView {
+  readonly kind: "asset";
   readonly id: string;
   readonly provider: ReviewProviderSnapshotView;
   readonly providerAssetId: string;
@@ -58,6 +67,27 @@ export interface ReviewAssetCandidateView {
   readonly rank: number;
 }
 
+/**
+ * Link-kind candidate (a "search link card" for platforms without an API).
+ */
+export interface ReviewAssetCandidateLinkView {
+  readonly kind: "link";
+  readonly id: string;
+  readonly platform: "xiaohongshu" | "douyin" | "bilibili" | "youtube";
+  readonly searchUrl: string;
+  readonly keyword: string;
+  readonly retrievedAt: string;
+  readonly matchedQueryId: string;
+  readonly rank: number;
+}
+
+/**
+ * Asset candidate (discriminated union on `kind`).
+ */
+export type ReviewAssetCandidateView =
+  | ReviewAssetCandidateAssetView
+  | ReviewAssetCandidateLinkView;
+
 export interface ReviewSearchQueryView {
   readonly id: string;
   readonly language: "zh" | "en";
@@ -74,48 +104,6 @@ export interface ReviewSceneSearchView {
   readonly candidateCount: number;
 }
 
-export interface ReviewLocalAssetView {
-  readonly relativePath: string;
-  readonly originalFileName: string | null;
-  readonly mimeType: string;
-  readonly sizeBytes: number;
-  readonly sha256: string;
-  readonly importedAt: string;
-  readonly provenance:
-    | { readonly kind: "selected_candidate"; readonly candidateId: string }
-    | { readonly kind: "user_owned"; readonly note?: string }
-    | {
-        readonly kind: "external";
-        readonly sourcePageUrl?: string;
-        readonly rights: ReviewAssetRightsView;
-        readonly note?: string;
-      };
-}
-
-export interface ReviewSelectedCandidateSnapshotView {
-  readonly selectedAt: string;
-  readonly candidate: ReviewAssetCandidateView;
-  readonly rightsAcknowledgement?: {
-    readonly acknowledgedAt: string;
-    readonly warningCodes: string[];
-  };
-}
-
-export type ReviewDecisionView =
-  | { readonly kind: "pending"; readonly note?: string }
-  | { readonly kind: "skipped"; readonly decidedAt: string; readonly note?: string }
-  | {
-      readonly kind: "candidate_selected";
-      readonly selection: ReviewSelectedCandidateSnapshotView;
-      readonly localAsset?: ReviewLocalAssetView;
-      readonly note?: string;
-    }
-  | {
-      readonly kind: "local_asset_attached";
-      readonly localAsset: ReviewLocalAssetView;
-      readonly note?: string;
-    };
-
 export interface ReviewVisualPlanView {
   readonly decision: string;
   readonly rationale: string;
@@ -130,8 +118,7 @@ export interface ReviewSourceAnchorView {
   readonly endQuote: string;
 }
 
-export type SceneStatusValue =
-  "pending" | "candidates_ready" | "skipped" | "selected" | "local_attached";
+export type SceneStatusValue = "pending" | "candidates_ready";
 
 export interface ReviewSceneView {
   readonly id: string;
@@ -143,7 +130,6 @@ export interface ReviewSceneView {
   readonly narrativeRole: string;
   readonly visualPlan: ReviewVisualPlanView;
   readonly search: ReviewSceneSearchView;
-  readonly review: ReviewDecisionView;
   readonly status: SceneStatusValue;
 }
 
@@ -190,7 +176,7 @@ export interface ReviewProjectView {
   readonly scenes: readonly ReviewSceneView[];
   readonly status: "created" | "planned";
   readonly sceneCount: number;
-  readonly producingSceneCount: number;
+  readonly searchedSceneCount: number;
   readonly lastGenerationAt: string | null;
   readonly sceneStatuses: readonly {
     readonly sceneId: string;
@@ -230,6 +216,9 @@ export interface SettingsView {
   readonly hasDeepseekKey: boolean;
   readonly hasStepKey: boolean;
   readonly hasPexelsKey: boolean;
+  readonly hasPixabayKey: boolean;
+  readonly hasUnsplashKey: boolean;
+  readonly hasOpenverseKey: boolean;
   readonly deepseekBaseUrl: string;
   readonly deepseekModel: string;
   readonly stepBaseUrl: string;
@@ -237,3 +226,6 @@ export interface SettingsView {
   readonly pexelsBaseUrl: string;
   readonly pexelsVideoBaseUrl: string;
 }
+
+/** Asset provider names accepted by search endpoints. */
+export type SearchProviderName = "fixture" | "pexels" | "pixabay" | "unsplash" | "openverse";

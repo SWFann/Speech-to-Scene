@@ -231,6 +231,7 @@ export class PexelsAssetProvider implements AssetProvider {
       : `https://www.pexels.com/photo/${photo.id}/`;
 
     return {
+      kind: "asset" as const,
       id: `${PEXELS_PROVIDER_ID}-photo-${photo.id}-${rank}`,
       provider: PEXELS_SNAPSHOT,
       providerAssetId: String(photo.id),
@@ -303,6 +304,7 @@ export class PexelsAssetProvider implements AssetProvider {
       : `https://www.pexels.com/video/${video.id}/`;
 
     return {
+      kind: "asset" as const,
       id: `${PEXELS_PROVIDER_ID}-video-${video.id}-${rank}`,
       provider: PEXELS_SNAPSHOT,
       providerAssetId: String(video.id),

@@ -6,9 +6,9 @@
  * duplicating construction logic.
  *
  * This module belongs to the CLI composition root layer. It imports concrete
- * infrastructure providers (fixture, pexels) and wires them into the
- * application-layer `SearchProvider` interface. Domain and Application layers
- * never import this file.
+ * infrastructure providers (fixture, pexels, pixabay, unsplash, openverse) and
+ * wires them into the application-layer `SearchProvider` interface. Domain and
+ * Application layers never import this file.
  */
 
 import type { SearchProvider } from "../application/search-project-assets.js";
@@ -29,11 +29,12 @@ import { ProjectNotPlannedError, InvalidArgumentError } from "../shared/errors.j
  * This is the composition root function. It imports concrete providers
  * dynamically to avoid circular dependencies.
  *
- * @param providerName - Provider name: "fixture" or "pexels".
+ * @param providerName - Provider name: "fixture", "pexels", "pixabay",
+ *   "unsplash", or "openverse".
  * @param env - Asset provider environment configuration.
- * @param httpClient - Optional HTTP client injection (for testing pexels).
- * @throws {ProjectNotPlannedError} If the provider name is unknown or pexels
- *   API key is missing.
+ * @param httpClient - Optional HTTP client injection (for testing).
+ * @throws {ProjectNotPlannedError} If the provider name is unknown or a
+ *   required API key is missing.
  */
 export async function createSearchProvider(
   providerName: string,
@@ -45,7 +46,6 @@ export async function createSearchProvider(
 ): Promise<SearchProvider> {
   switch (providerName) {
     case "fixture": {
-      // Import dynamically to avoid circular dependency
       const { FixtureAssetProvider } =
         await import("../providers/fixture/fixture-asset-provider.js");
       const clock: { now: () => Date } = { now: () => new Date() };
@@ -71,6 +71,52 @@ export async function createSearchProvider(
         ...(httpClient ? { httpClient } : {}),
       };
       const provider = new PexelsAssetProvider(pexelsOptions);
+      return {
+        providerId: provider.providerId,
+        providerPolicyRevision: provider.providerSnapshot.policyRevision,
+        capabilities: provider.capabilities,
+        search: provider.search.bind(provider),
+      };
+    }
+    case "pixabay": {
+      if (!env.pixabayApiKey) {
+        throw new ProjectNotPlannedError(
+          "Pixabay API key is required. Set PIXABAY_API_KEY environment variable.",
+        );
+      }
+      const { PixabayAssetProvider } = await import("../providers/pixabay/pixabay-asset-provider.js");
+      const provider = new PixabayAssetProvider({
+        apiKey: env.pixabayApiKey,
+        ...(httpClient ? { httpClient } : {}),
+      });
+      return {
+        providerId: provider.providerId,
+        providerPolicyRevision: provider.providerSnapshot.policyRevision,
+        capabilities: provider.capabilities,
+        search: provider.search.bind(provider),
+      };
+    }
+    case "unsplash": {
+      if (!env.unsplashApiKey) {
+        throw new ProjectNotPlannedError(
+          "Unsplash API key is required. Set UNSPLASH_API_KEY environment variable.",
+        );
+      }
+      const { UnsplashAssetProvider } = await import("../providers/unsplash/unsplash-asset-provider.js");
+      const provider = new UnsplashAssetProvider({
+        apiKey: env.unsplashApiKey,
+        ...(httpClient ? { httpClient } : {}),
+      });
+      return {
+        providerId: provider.providerId,
+        providerPolicyRevision: provider.providerSnapshot.policyRevision,
+        capabilities: provider.capabilities,
+        search: provider.search.bind(provider),
+      };
+    }
+    case "openverse": {
+      const { OpenverseAssetProvider } = await import("../providers/openverse/openverse-asset-provider.js");
+      const provider = new OpenverseAssetProvider({});
       return {
         providerId: provider.providerId,
         providerPolicyRevision: provider.providerSnapshot.policyRevision,
@@ -175,5 +221,31 @@ export function assetProviderEnvFromSettings(settings: Settings): AssetProviderE
     pexelsApiKey: settings.pexelsApiKey ?? env.pexelsApiKey,
     pexelsBaseUrl: settings.pexelsBaseUrl ?? env.pexelsBaseUrl,
     pexelsVideoBaseUrl: settings.pexelsVideoBaseUrl ?? env.pexelsVideoBaseUrl,
+    pixabayApiKey: settings.pixabayApiKey ?? env.pixabayApiKey,
+    unsplashApiKey: settings.unsplashApiKey ?? env.unsplashApiKey,
+    openverseApiKey: settings.openverseApiKey ?? env.openverseApiKey,
   };
+}
+
+/**
+ * Returns the list of provider names that are currently usable based on which
+ * API keys are configured. Always includes "fixture" as a fallback.
+ *
+ * If `providers` is specified, filters to only those that are usable.
+ */
+export function resolveConfiguredProviders(
+  env: AssetProviderEnvConfig,
+  providers?: readonly string[],
+): string[] {
+  const usable: string[] = ["fixture"];
+  if (env.pexelsApiKey) usable.push("pexels");
+  if (env.pixabayApiKey) usable.push("pixabay");
+  if (env.unsplashApiKey) usable.push("unsplash");
+  usable.push("openverse"); // no key required
+
+  if (providers && providers.length > 0) {
+    const usableSet = new Set(usable);
+    return providers.filter((p) => usableSet.has(p));
+  }
+  return usable;
 }

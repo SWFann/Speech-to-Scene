@@ -38,7 +38,6 @@ import { buildSourceBlocks } from "../planner/source-blocks.js";
 import { resolveAnchors } from "../planner/anchor-resolver.js";
 import {
   PlannerOutputSchema,
-  validateStockAssetQueries,
 } from "../planner/planner-output-schema.js";
 
 // ---------------------------------------------------------------------------
@@ -122,7 +121,7 @@ async function readAndVerifySource(
 }
 
 /**
- * Checks whether a project can be planned (not already planned or has review data).
+ * Checks whether a project can be planned (not already planned or has search data).
  */
 function checkCanPlan(
   project: ReturnType<typeof SpeechToSceneProjectSchema.parse>,
@@ -132,11 +131,9 @@ function checkCanPlan(
     if (!force) {
       throw new ProjectAlreadyPlannedError(project.project.id);
     }
-    // With --force, check for review/local asset data
-    const hasReviewOrAssets = project.scenes.some(
-      (s) => s.review.kind !== "pending" || s.search.candidates.length > 0,
-    );
-    if (hasReviewOrAssets) {
+    // With --force, check for existing search results
+    const hasSearchResults = project.scenes.some((s) => s.search.candidates.length > 0);
+    if (hasSearchResults) {
       throw new ProjectAlreadyPlannedError(project.project.id);
     }
   }
@@ -177,7 +174,6 @@ function convertToPersistedScenes(
     }>;
     candidates: [];
   };
-  review: { kind: "pending"; note?: string };
 }> {
   return resolved.scenes.map((rs, index) => {
     const sceneId = idGenerator.sceneId();
@@ -214,7 +210,6 @@ function convertToPersistedScenes(
         queries,
         candidates: [],
       },
-      review: { kind: "pending" as const },
     };
   });
 }
@@ -325,19 +320,6 @@ export async function planProject(
       `Planner returned ${plannerOutput.scenes.length} scenes, exceeding maxScenes of ${input.maxScenes}`,
       `场景数超出限制：planner 返回了 ${plannerOutput.scenes.length} 个场景，上限为 ${input.maxScenes}`,
     );
-  }
-
-  // Validate stock asset queries
-  try {
-    validateStockAssetQueries(plannerOutput);
-  } catch (error) {
-    if (error instanceof Error) {
-      throw new PlannerValidationError(
-        `Stock asset query validation failed: ${error.message}`,
-        "stock_asset 场景必须有 enabled query",
-      );
-    }
-    throw error;
   }
 
   // Step 8: Resolve anchors

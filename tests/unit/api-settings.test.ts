@@ -9,6 +9,9 @@ const SAMPLE_VIEW: SettingsView = {
   hasDeepseekKey: false,
   hasStepKey: false,
   hasPexelsKey: true,
+  hasPixabayKey: false,
+  hasUnsplashKey: false,
+  hasOpenverseKey: false,
   deepseekBaseUrl: "",
   deepseekModel: "",
   stepBaseUrl: "",
@@ -21,7 +24,6 @@ function fakeDeps(overrides: Partial<ReviewServerDependencies> = {}): ReviewServ
   // Stubs are non-async; `await` on a non-Promise returns the value directly.
   const base: Record<string, unknown> = {
     repository: { load: () => ({}), save: () => {}, exists: () => true },
-    assetWriter: { writeAsset: () => ({ relativePath: "x" }) },
     getReviewProject: () => ({ project: { id: "p", scenes: [] } }),
     updateScene: () => ({}),
     updateSceneQueries: () => ({}),
@@ -34,9 +36,6 @@ function fakeDeps(overrides: Partial<ReviewServerDependencies> = {}): ReviewServ
       cacheMisses: 0,
       warnings: [],
     }),
-    selectCandidate: () => ({}),
-    skipScene: () => ({}),
-    attachLocalAsset: () => ({}),
     getSettings: () => SAMPLE_VIEW,
     saveSettings: () => SAMPLE_VIEW,
     createProjectFromContent: () => ({

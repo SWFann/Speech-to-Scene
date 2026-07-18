@@ -103,6 +103,7 @@ export class FixtureAssetProvider implements AssetProvider {
     const orientation = this.inferOrientationFromDimensions(width, height);
 
     return {
+      kind: "asset" as const,
       id: `${FIXTURE_PROVIDER_ID}-${input.queryId}-${mediaType}-${rank}`,
       provider: FIXTURE_SNAPSHOT,
       providerAssetId: `fixture-asset-${rank}`,

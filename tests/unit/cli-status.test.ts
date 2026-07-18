@@ -33,6 +33,7 @@ async function makeTempRoot(): Promise<string> {
 
 function makeCandidate(id = "candidate-001"): Record<string, unknown> {
   return {
+    kind: "asset",
     id,
     provider: {
       id: "pexels",
@@ -68,21 +69,6 @@ function makeCandidate(id = "candidate-001"): Record<string, unknown> {
   };
 }
 
-function makeLocalAsset(sceneId = "scene-00000001"): Record<string, unknown> {
-  return {
-    relativePath: `assets/${sceneId}/test.png`,
-    originalFileName: "test.png",
-    mimeType: "image/png",
-    sizeBytes: 1024,
-    sha256: "b".repeat(64),
-    importedAt: FIXED_NOW,
-    provenance: {
-      kind: "selected_candidate" as const,
-      candidateId: "candidate-001",
-    },
-  };
-}
-
 function makeBaseScene(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: "scene-00000001",
@@ -104,7 +90,6 @@ function makeBaseScene(overrides: Record<string, unknown> = {}): Record<string, 
       visualKeywords: ["greeting"],
     },
     search: { queries: [], candidates: [] },
-    review: { kind: "pending" },
     ...overrides,
   };
 }
@@ -148,12 +133,6 @@ async function writeProject(projectRoot: string, project = makeProject()): Promi
 
 async function writeSource(projectRoot: string): Promise<void> {
   await fs.writeFile(path.join(projectRoot, "script.md"), SCRIPT, "utf-8");
-}
-
-async function writeLocalAsset(projectRoot: string, sceneId: string): Promise<void> {
-  const assetDir = path.join(projectRoot, "assets", sceneId);
-  await fs.mkdir(assetDir, { recursive: true });
-  await fs.writeFile(path.join(assetDir, "test.png"), Buffer.alloc(1024, 0x89));
 }
 
 async function runCli(
@@ -206,10 +185,9 @@ describe("CLI: s2s status", () => {
     expect(commandNames).toContain("status");
   });
 
-  it("human output contains review, localAsset, and Validate summary", async () => {
+  it("human output contains search progress and Validate summary", async () => {
     const projectRoot = await makeTempRoot();
     const candidate = makeCandidate();
-    const localAsset = makeLocalAsset("scene-00000002");
 
     const project = makeProject({
       generation: {
@@ -238,7 +216,6 @@ describe("CLI: s2s status", () => {
           sourceRange: { start: 0, end: 11 },
           text: "Hello from",
           summary: "Scene 1",
-          review: { kind: "pending" },
         }),
         makeBaseScene({
           id: "scene-00000002",
@@ -259,43 +236,33 @@ describe("CLI: s2s status", () => {
             candidates: [candidate],
             lastSearchedAt: FIXED_NOW,
           },
-          review: {
-            kind: "candidate_selected",
-            selection: {
-              selectedAt: FIXED_NOW,
-              candidate,
-            },
-            localAsset,
-          },
         }),
       ],
     });
     await writeProject(projectRoot, project);
     await writeSource(projectRoot);
-    await writeLocalAsset(projectRoot, "scene-00000002");
 
     const result = await runCli(["status", projectRoot]);
     const output = result.stdout.join("\n");
 
-    // Review summary: 1/2 processed (1 pending, 1 candidate_selected)
-    expect(output).toContain("审阅：1/2 已处理");
-    // withLocalAsset: 1 (candidate_selected with localAsset)
-    expect(output).toContain("本地素材：1");
+    // Search summary: 1/2 scenes searched
+    expect(output).toContain("搜索：1/2 已搜索");
     // Validate line
     expect(output).toMatch(/Validate：\d+ errors?, \d+ warnings?/);
   });
 
-  it("JSON output contains review and validation fields", async () => {
+  it("JSON output contains search and validation fields", async () => {
     const projectRoot = await makeTempRoot();
     await writeProject(projectRoot);
     await writeSource(projectRoot);
 
     const result = await runCli(["status", projectRoot, "--json"]);
     const body = JSON.parse(result.stdout.join("\n")) as {
-      review: {
+      search: {
         totalScenes: number;
         pending: number;
-        completionRatio: number;
+        candidatesReady: number;
+        searchedRatio: number;
       };
       validation: {
         ok: boolean;
@@ -305,10 +272,11 @@ describe("CLI: s2s status", () => {
       };
     };
 
-    expect(body.review).toBeDefined();
-    expect(body.review.totalScenes).toBe(0);
-    expect(body.review.pending).toBe(0);
-    expect(body.review.completionRatio).toBe(0);
+    expect(body.search).toBeDefined();
+    expect(body.search.totalScenes).toBe(0);
+    expect(body.search.pending).toBe(0);
+    expect(body.search.candidatesReady).toBe(0);
+    expect(body.search.searchedRatio).toBe(0);
     expect(body.validation).toBeDefined();
     expect(body.validation.ok).toBe(true);
     expect(body.validation.errorCount).toBe(0);
@@ -366,15 +334,20 @@ describe("CLI: s2s status", () => {
   it("shows at most 5 validation issues in human output", async () => {
     const projectRoot = await makeTempRoot();
 
-    // Create a project with 4 stock_asset scenes, all pending.
-    // Each scene generates 2 warnings (scene_pending + stock_asset_no_candidates),
+    // Create a project with 8 stock_asset scenes, all with no candidates.
+    // Each scene generates 1 warning (scene_no_candidates),
     // for a total of 8 warnings — more than the 5-issue display limit.
     // Non-overlapping sourceRanges are required by relation validation.
+    // Ranges must not start/end on whitespace (text is NonEmptyTrimmedStringSchema).
     const ranges = [
-      { start: 0, end: 5, text: "Hello" },
-      { start: 6, end: 10, text: "from" },
-      { start: 11, end: 17, text: "status" },
-      { start: 18, end: 22, text: "CLI." },
+      { start: 0, end: 2, text: "He" },
+      { start: 2, end: 5, text: "llo" },
+      { start: 6, end: 8, text: "fr" },
+      { start: 8, end: 10, text: "om" },
+      { start: 11, end: 14, text: "sta" },
+      { start: 14, end: 17, text: "tus" },
+      { start: 18, end: 20, text: "CL" },
+      { start: 20, end: 22, text: "I." },
     ];
     const scenes = ranges.map((r, i) =>
       makeBaseScene({
@@ -401,7 +374,6 @@ describe("CLI: s2s status", () => {
           ],
           candidates: [],
         },
-        review: { kind: "pending" },
       }),
     );
 

@@ -11,6 +11,8 @@ interface SettingsPanelProps {
 export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.ReactElement {
   const [view, setView] = useState<SettingsView | null>(null);
   const [pexelsKey, setPexelsKey] = useState("");
+  const [pixabayKey, setPixabayKey] = useState("");
+  const [unsplashKey, setUnsplashKey] = useState("");
   const [planner, setPlanner] = useState("fixture");
   const [plannerKey, setPlannerKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -31,12 +33,16 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
     setSaved(false);
     const body: Record<string, unknown> = { plannerProvider: planner };
     if (pexelsKey) body.pexelsApiKey = pexelsKey;
+    if (pixabayKey) body.pixabayApiKey = pixabayKey;
+    if (unsplashKey) body.unsplashApiKey = unsplashKey;
     if (planner === "deepseek" && plannerKey) body.deepseekApiKey = plannerKey;
     if (planner === "stepfun" && plannerKey) body.stepApiKey = plannerKey;
     try {
       const v = await client.saveSettings(body);
       setView(v);
       setPexelsKey("");
+      setPixabayKey("");
+      setUnsplashKey("");
       setPlannerKey("");
       setSaved(true);
     } finally {
@@ -81,6 +87,8 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
                 />
               </>
             )}
+
+            <h3 className="settings-section-title">图库 API Key</h3>
             <label>Pexels API Key</label>
             <input
               type="password"
@@ -89,6 +97,26 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
               onChange={(e) => setPexelsKey(e.target.value)}
               disabled={saving}
             />
+            <label>Pixabay API Key</label>
+            <input
+              type="password"
+              placeholder={view?.hasPixabayKey ? "已配置，留空不修改" : "粘贴 Pixabay API Key"}
+              value={pixabayKey}
+              onChange={(e) => setPixabayKey(e.target.value)}
+              disabled={saving}
+            />
+            <label>Unsplash API Key</label>
+            <input
+              type="password"
+              placeholder={view?.hasUnsplashKey ? "已配置，留空不修改" : "粘贴 Unsplash API Key"}
+              value={unsplashKey}
+              onChange={(e) => setUnsplashKey(e.target.value)}
+              disabled={saving}
+            />
+            <p className="settings-hint">
+              Openverse 无需 API Key。配置多个图库后，搜索将自动聚合所有可用源。
+            </p>
+
             {saved && <span className="settings-saved">已保存</span>}
             <button
               className="btn primary"

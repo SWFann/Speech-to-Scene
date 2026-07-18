@@ -10,10 +10,12 @@
  * - Scene anchors reference valid blocks in consecutive order.
  * - Scene ranges fall within anchor coverage.
  * - Scene text matches the source text slice.
- * - stock_asset scenes have at least one enabled search query.
  *
  * Single-object rules (field formats, enums, required fields) live in each
  * schema's `.superRefine()` or field-level constraints.
+ *
+ * Note: `visualPlan.decision` no longer gates search (Phase 1 redesign), so
+ * the former "stock_asset scenes must have an enabled query" check is gone.
  */
 
 import type { SpeechToSceneProject } from "./project-schema.js";
@@ -397,17 +399,6 @@ export function validateSceneRelations(scene: Scene, existingBlocks: SourceBlock
       path: ["search", "queries"],
       message: "Scene 内 query ID 必须唯一",
     });
-  }
-
-  if (scene.visualPlan.decision === "stock_asset") {
-    const hasEnabledQuery = scene.search.queries.some((q: { enabled: boolean }) => q.enabled);
-    if (!hasEnabledQuery) {
-      issues.push({
-        code: "stock_asset_no_enabled_query",
-        path: ["search", "queries"],
-        message: "stock_asset scene 至少需要一个 enabled query",
-      });
-    }
   }
 
   return issues;

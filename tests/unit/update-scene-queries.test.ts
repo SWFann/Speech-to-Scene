@@ -9,7 +9,7 @@
  *  5.  Empty query string is rejected
  *  6.  Empty purpose is rejected
  *  7.  Invalid language is rejected
- *  8.  stock_asset with no enabled query is rejected
+ *  8.  stock_asset with no enabled query is accepted (gating removed)
  *  9.  Non-stock_asset can accept no enabled query
  *  10. Non-existent sceneId throws SceneNotFoundError
  *  11. Unknown fields in query are rejected
@@ -32,7 +32,7 @@ import {
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
 import { SpeechToSceneProjectSchema } from "../../src/domain/project-schema.js";
-import { SceneNotFoundError, ProjectConflictError } from "../../src/shared/errors.js";
+import { SceneNotFoundError } from "../../src/shared/errors.js";
 import type { AssetCandidate } from "../../src/domain/asset-schema.js";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +46,7 @@ const FIXED_NOW = new Date("2026-07-15T12:00:00.000Z");
  */
 function makeTestCandidate(): AssetCandidate {
   return {
+    kind: "asset",
     id: "cand-001",
     provider: {
       id: "fixture",
@@ -152,7 +153,6 @@ function makeTestProject(): SpeechToSceneProject {
           candidates: [makeTestCandidate()],
           lastSearchedAt: "2026-07-14T10:00:00.000Z",
         },
-        review: { kind: "pending" },
       },
       {
         id: "scene-002",
@@ -177,7 +177,6 @@ function makeTestProject(): SpeechToSceneProject {
           queries: [],
           candidates: [],
         },
-        review: { kind: "pending" },
       },
     ],
   });
@@ -394,22 +393,23 @@ describe("updateSceneQueries", () => {
     expect(repo.saveCount).toBe(0);
   });
 
-  it("8. stock_asset with no enabled query is rejected", async () => {
+  it("8. stock_asset with no enabled query is accepted (gating removed)", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
-    await expect(
-      updateSceneQueries(
-        {
-          projectRoot: "/test/project",
-          sceneId: "scene-001",
-          queries: [{ id: "q-001", language: "en", query: "valid", purpose: "p1", enabled: false }],
-        },
-        makeDeps(repo),
-      ),
-    ).rejects.toThrow(ProjectConflictError);
+    // Phase 1 redesign: stock_asset no longer gates search, so disabled
+    // queries on a stock_asset scene should be accepted.
+    const result = await updateSceneQueries(
+      {
+        projectRoot: "/test/project",
+        sceneId: "scene-001",
+        queries: [{ id: "q-001", language: "en", query: "valid", purpose: "p1", enabled: false }],
+      },
+      makeDeps(repo),
+    );
 
-    expect(repo.saveCount).toBe(0);
+    expect(result.scenes[0]!.search.queries[0]!.enabled).toBe(false);
+    expect(repo.saveCount).toBe(1);
   });
 
   it("9. non-stock_asset can accept no enabled query", async () => {
@@ -548,7 +548,6 @@ describe("updateSceneQueries", () => {
     expect(otherScene.search.queries).toEqual(originalOther.search.queries);
     expect(otherScene.search.candidates).toEqual(originalOther.search.candidates);
     expect(otherScene.visualPlan).toEqual(originalOther.visualPlan);
-    expect(otherScene.review).toEqual(originalOther.review);
   });
 
   it("repository.load error propagates unchanged", async () => {

@@ -44,6 +44,7 @@ import { searchSceneAssets } from "../../src/application/search-scene-assets.js"
 import type { SearchProjectAssetsResult } from "../../src/application/search-project-assets.js";
 import { FixtureAssetProvider } from "../../src/providers/fixture/fixture-asset-provider.js";
 import { FileSearchCache } from "../../src/infrastructure/file-search-cache.js";
+import { DefaultLinkSuggestionGenerator } from "../../src/infrastructure/link-suggestion-generator.js";
 import { getSearchCacheDir } from "../../src/cli/provider-factory.js";
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
@@ -214,7 +215,6 @@ function makeTestProject(): SpeechToSceneProject {
           candidates: [],
           lastSearchedAt: FIXED_NOW,
         },
-        review: { kind: "pending" },
       },
       {
         id: "scene-002",
@@ -242,7 +242,6 @@ function makeTestProject(): SpeechToSceneProject {
           candidates: [],
           lastSearchedAt: FIXED_NOW,
         },
-        review: { kind: "pending" },
       },
       {
         id: "scene-003",
@@ -267,7 +266,6 @@ function makeTestProject(): SpeechToSceneProject {
           queries: [],
           candidates: [],
         },
-        review: { kind: "pending" },
       },
     ],
   });
@@ -349,6 +347,7 @@ async function startTestServer(
           search: fixtureProvider.search.bind(fixtureProvider),
         }),
       createCache: createCacheFn,
+      linkGenerator: new DefaultLinkSuggestionGenerator(),
       now: () => new Date(FIXED_NOW),
     });
 
@@ -358,14 +357,6 @@ async function startTestServer(
     updateScene,
     updateSceneQueries,
     searchSceneAssets: searchSceneAssetsBound,
-    selectCandidate: () =>
-      Promise.reject(new Error("selectCandidate not configured for this test")),
-    skipScene: () => Promise.reject(new Error("skipScene not configured for this test")),
-    attachLocalAsset: () =>
-      Promise.reject(new Error("attachLocalAsset not configured for this test")),
-    assetWriter: {
-      writeAsset: () => Promise.reject(new Error("assetWriter not configured")),
-    },
   };
 
   const handle = await startReviewServer(
@@ -392,7 +383,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(200);
@@ -415,7 +406,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     // Verify via repository that scene-002 still has 0 candidates
@@ -437,7 +428,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "super-secret-token",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     const bodyStr = JSON.stringify(body);
@@ -467,7 +458,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     // After search: GET /api/project should show new candidates
@@ -493,7 +484,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(404);
@@ -506,7 +497,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "invalid_provider" }),
+      body: JSON.stringify({ providers: ["invalid_provider"] }),
     });
 
     expect(status).toBe(400);
@@ -519,7 +510,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", extra: "bad" }),
+      body: JSON.stringify({ providers: ["fixture"], extra: "bad" }),
     });
 
     expect(status).toBe(400);
@@ -535,7 +526,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", projectRoot: "/evil/path" }),
+      body: JSON.stringify({ providers: ["fixture"], projectRoot: "/evil/path" }),
     });
 
     expect(status).toBe(400);
@@ -551,7 +542,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", sceneId: "evil-scene" }),
+      body: JSON.stringify({ providers: ["fixture"], sceneId: "evil-scene" }),
     });
 
     expect(status).toBe(400);
@@ -564,7 +555,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", cachePath: "/evil/cache" }),
+      body: JSON.stringify({ providers: ["fixture"], cachePath: "/evil/cache" }),
     });
 
     expect(status).toBe(400);
@@ -576,7 +567,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(401);
@@ -589,7 +580,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "wrong",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(403);
@@ -603,7 +594,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       host: `127.0.0.1:${port}`,
       origin: "https://evil.example",
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(403);
@@ -616,7 +607,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: "evil.example:3210",
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(403);
@@ -656,25 +647,26 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(400);
     expect((body as { error: { code: string } }).error.code).toBe("invalid_request");
   }, 10000);
 
-  it("16. non-stock_asset scene → 409 conflict", async () => {
+  it("16. non-stock_asset scene → search succeeds (gating removed)", async () => {
     const { port } = await startTestServer({ token: "tok", useFileCache: true });
     // scene-003 is speaker_only
-    const { status, body } = await httpRequest(port, "/api/scenes/scene-003/search", {
+    const { status } = await httpRequest(port, "/api/scenes/scene-003/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
-    expect(status).toBe(409);
-    expect((body as { error: { code: string } }).error.code).toBe("conflict");
+    // Phase 1 redesign: stock_asset gating removed — search succeeds.
+    // Note: scene-003 has no enabled queries, so search returns 200 with 0 candidates.
+    expect(status).toBe(200);
   }, 10000);
 
   it("17. mixed enabled/disabled queries → only enabled queries produce candidates", async () => {
@@ -709,7 +701,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     // Search should succeed and return candidates from the enabled query only
@@ -745,7 +737,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     // Verify cache directory exists under the project root
@@ -769,7 +761,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture" }),
+      body: JSON.stringify({ providers: ["fixture"] }),
     });
 
     expect(status).toBe(200);
@@ -796,7 +788,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", extra: largeValue }),
+      body: JSON.stringify({ providers: ["fixture"], extra: largeValue }),
     });
 
     expect(status).toBe(413);
@@ -811,7 +803,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", refresh: false }),
+      body: JSON.stringify({ providers: ["fixture"], refresh: false }),
     });
 
     // Second search with refresh=true should still succeed
@@ -819,7 +811,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", refresh: true }),
+      body: JSON.stringify({ providers: ["fixture"], refresh: true }),
     });
 
     expect(status).toBe(200);
@@ -835,7 +827,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", limit: 5 }),
+      body: JSON.stringify({ providers: ["fixture"], limit: 5 }),
     });
 
     expect(status).toBe(200);
@@ -847,7 +839,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", limit: 100 }),
+      body: JSON.stringify({ providers: ["fixture"], limit: 100 }),
     });
 
     expect(status).toBe(400);
@@ -860,7 +852,7 @@ describe("POST /api/scenes/:sceneId/search", () => {
       method: "POST",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ provider: "fixture", limit: 0 }),
+      body: JSON.stringify({ providers: ["fixture"], limit: 0 }),
     });
 
     expect(status).toBe(400);

@@ -203,7 +203,6 @@ describe("CLI: s2s validate", () => {
             ],
             candidates: [],
           },
-          review: { kind: "pending" },
         },
       ],
     });
@@ -213,7 +212,7 @@ describe("CLI: s2s validate", () => {
     const result = await runCli(["validate", projectRoot]);
 
     expect(result.stdout.join("\n")).toContain("验证通过：未发现错误");
-    expect(result.stdout.join("\n")).toContain("stock_asset_no_candidates");
+    expect(result.stdout.join("\n")).toContain("scene_no_candidates");
     expect(result.exitCode).toBe(0);
   });
 

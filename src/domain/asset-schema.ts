@@ -3,7 +3,13 @@
  *
  * These schemas define the structure of asset candidates returned by asset
  * providers, the provider's terms snapshot at retrieval time, and the
- * structured rights evidence that supports review decisions.
+ * structured rights evidence.
+ *
+ * `AssetCandidate` is a discriminated union on `kind`:
+ * - `asset`: a library result (Pexels/Pixabay/Unsplash/Openverse/fixture) with
+ *   thumbnail, rights, dimensions, etc.
+ * - `link`: a "search link card" for platforms without an API (Xiaohongshu,
+ *   Douyin, Bilibili, YouTube) — just a platform name, keyword, and search URL.
  *
  * No asset-provider SDK, network call, or filesystem access lives in this
  * file. All URLs are HTTPS-only strings validated by HttpsUrlSchema.
@@ -186,7 +192,20 @@ export const AssetRightsSchema = z
 export type AssetRights = z.infer<typeof AssetRightsSchema>;
 
 // ---------------------------------------------------------------------------
-// Asset candidate
+// Link platform
+// ---------------------------------------------------------------------------
+
+/**
+ * Platforms supported for "search link card" candidates.
+ *
+ * These platforms do not expose a public search API usable from the app, so
+ * we only generate a search URL for the user to open manually.
+ */
+export const LinkPlatformSchema = z.enum(["xiaohongshu", "douyin", "bilibili", "youtube"]);
+export type LinkPlatform = z.infer<typeof LinkPlatformSchema>;
+
+// ---------------------------------------------------------------------------
+// Asset candidate (discriminated union)
 // ---------------------------------------------------------------------------
 
 /**
@@ -199,36 +218,80 @@ function validateOrientation(width: number, height: number, orientation: string)
 }
 
 /**
- * Asset candidate returned by a provider's search result.
+ * Base schema for an `asset`-kind candidate (a library result).
  *
- * Cross-field rules (enforced via `.superRefine()`):
+ * This is the existing candidate structure returned by asset providers
+ * (Pexels/Pixabay/Unsplash/Openverse/fixture).
+ *
+ * Cross-field rules (enforced on the union via `.superRefine()`):
+ * - `orientation` must be consistent with `width` and `height`.
+ * - `photo` must not have `durationSeconds`; `video` must have positive `durationSeconds`.
+ * - `creator.name` must be `null` when unknown, never a placeholder like `"Unknown"`.
+ */
+export const AssetCandidateAssetSchema = z.strictObject({
+  kind: z.literal("asset"),
+  id: IdSchema,
+  provider: AssetProviderSnapshotSchema,
+  providerAssetId: NonEmptyTrimmedStringSchema,
+  mediaType: z.enum(["photo", "video"]),
+  thumbnailUrl: HttpsUrlSchema,
+  previewUrl: HttpsUrlSchema.optional(),
+  sourcePageUrl: HttpsUrlSchema,
+  width: PositiveIntegerSchema,
+  height: PositiveIntegerSchema,
+  durationSeconds: z.number().positive().finite().optional(),
+  orientation: z.enum(["portrait", "landscape", "square"]),
+  creator: z.strictObject({
+    name: z.union([z.string(), z.null()]),
+    profileUrl: HttpsUrlSchema.optional(),
+  }),
+  rights: AssetRightsSchema,
+  retrievedAt: UtcDateTimeSchema,
+  matchedQueryId: IdSchema,
+  rank: PositiveIntegerSchema,
+});
+
+export type AssetCandidateAsset = z.infer<typeof AssetCandidateAssetSchema>;
+
+/**
+ * Schema for a `link`-kind candidate (a "search link card").
+ *
+ * Represents a platform (Xiaohongshu/Douyin/Bilibili/YouTube) search URL
+ * generated from a scene's query/keywords. No image is attached — the user
+ * opens the URL to browse results manually.
+ */
+export const AssetCandidateLinkSchema = z.strictObject({
+  kind: z.literal("link"),
+  id: IdSchema,
+  platform: LinkPlatformSchema,
+  searchUrl: HttpsUrlSchema,
+  keyword: NonEmptyTrimmedStringSchema,
+  retrievedAt: UtcDateTimeSchema,
+  matchedQueryId: IdSchema,
+  rank: PositiveIntegerSchema,
+});
+
+export type AssetCandidateLink = z.infer<typeof AssetCandidateLinkSchema>;
+
+/**
+ * Asset candidate returned by a search result.
+ *
+ * Discriminated union on `kind`:
+ * - `asset`: a library result with thumbnail/rights/dimensions.
+ * - `link`: a platform search-link card (no image).
+ *
+ * Asset-kind cross-field rules (enforced via `.superRefine()`):
  * - `orientation` must be consistent with `width` and `height`.
  * - `photo` must not have `durationSeconds`; `video` must have positive `durationSeconds`.
  * - `creator.name` must be `null` when unknown, never a placeholder like `"Unknown"`.
  */
 export const AssetCandidateSchema = z
-  .strictObject({
-    id: IdSchema,
-    provider: AssetProviderSnapshotSchema,
-    providerAssetId: NonEmptyTrimmedStringSchema,
-    mediaType: z.enum(["photo", "video"]),
-    thumbnailUrl: HttpsUrlSchema,
-    previewUrl: HttpsUrlSchema.optional(),
-    sourcePageUrl: HttpsUrlSchema,
-    width: PositiveIntegerSchema,
-    height: PositiveIntegerSchema,
-    durationSeconds: z.number().positive().finite().optional(),
-    orientation: z.enum(["portrait", "landscape", "square"]),
-    creator: z.strictObject({
-      name: z.union([z.string(), z.null()]),
-      profileUrl: HttpsUrlSchema.optional(),
-    }),
-    rights: AssetRightsSchema,
-    retrievedAt: UtcDateTimeSchema,
-    matchedQueryId: IdSchema,
-    rank: PositiveIntegerSchema,
-  })
+  .discriminatedUnion("kind", [AssetCandidateAssetSchema, AssetCandidateLinkSchema])
   .superRefine((candidate, ctx) => {
+    if (candidate.kind !== "asset") {
+      return;
+    }
+
     // Orientation must match dimensions
     if (!validateOrientation(candidate.width, candidate.height, candidate.orientation)) {
       ctx.addIssue({

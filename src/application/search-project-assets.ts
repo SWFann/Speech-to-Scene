@@ -1,8 +1,15 @@
 /**
  * searchProjectAssets use case.
  *
- * Coordinates asset search across providers for a project's planned scenes.
- * Handles deduplication, ranking, cache integration, and persistence.
+ * Coordinates asset search across multiple providers for a project's planned
+ * scenes. Handles multi-source aggregation, deduplication, link-card
+ * generation, cache integration, and persistence.
+ *
+ * Phase 1 material-discovery redesign:
+ * - Any scene can be searched (no stock_asset gating).
+ * - Multiple providers are queried in parallel; results are merged.
+ * - After asset candidates, "search link card" candidates (kind: "link") are
+ *   appended for platforms without an API (Xiaohongshu/Douyin/Bilibili/YouTube).
  *
  * The use case owns the full transaction: load project, search, validate,
  * save. This makes --dry-run byte-stable (no mutation without explicit save).
@@ -11,24 +18,28 @@
 import type {
   AssetSearchInput,
   AssetSearchResult,
-  AssetCandidate,
+  AssetCandidate as PortAssetCandidate,
   ProviderCapabilities,
   AssetUsePolicy,
 } from "./ports/asset-provider.js";
 import type { SearchCache, CacheSearchInput } from "./ports/search-cache.js";
 import { computeProviderCacheKey } from "./ports/search-cache.js";
+import type { ProjectRepository } from "./ports/project-repository.js";
 import type { Scene } from "../domain/scene-schema.js";
+import type { AssetCandidateLink } from "../domain/asset-schema.js";
 import { SpeechToSceneProjectSchema } from "../domain/project-schema.js";
 import { AssetCandidateSchema } from "../domain/asset-schema.js";
-import type { ProjectRepository } from "./ports/project-repository.js";
 import { ProjectNotPlannedError, ProjectValidationError } from "../shared/errors.js";
 
 /**
  * Input for searchProjectAssets use case.
+ *
+ * `providers` lists the provider names to aggregate (e.g., ["fixture"],
+ * ["pexels", "pixabay"]). If empty, defaults to ["fixture"].
  */
 export interface SearchProjectAssetsInput {
   readonly projectRoot: string;
-  readonly provider: string;
+  readonly providers: readonly string[];
   readonly maxAssetsPerQuery: number;
   readonly sceneId?: string;
   readonly refresh?: boolean;
@@ -62,32 +73,59 @@ export interface SearchProvider {
   search(input: AssetSearchInput): Promise<AssetSearchResult>;
 }
 
+/**
+ * Generates "search link card" candidates (kind: "link") for platforms
+ * without a usable search API.
+ *
+ * This is a pure function — no network, no I/O. Implemented in infrastructure.
+ */
+export interface LinkSuggestionGenerator {
+  generateLinks(input: {
+    readonly keyword: string;
+    readonly matchedQueryId: string;
+    readonly retrievedAt: string;
+  }): AssetCandidateLink[];
+}
+
+/**
+ * Dependencies for searchProjectAssets.
+ */
+export interface SearchProjectAssetsDeps {
+  /** Project repository (used for loading/saving projects). */
+  readonly repository: ProjectRepository;
+  /** Factory that creates a SearchProvider by name. */
+  readonly createProvider: (providerName: string) => Promise<SearchProvider>;
+  /** Factory that creates a SearchCache for a project root and provider. */
+  readonly createCache: (projectRoot: string, providerName: string) => SearchCache;
+  /** Link suggestion generator (pure, no network). */
+  readonly linkGenerator: LinkSuggestionGenerator;
+  /** Clock for deterministic timestamps. */
+  readonly now: () => Date;
+}
+
 // ---------------------------------------------------------------------------
 // Use Case Implementation
 // ---------------------------------------------------------------------------
 
 /**
- * Searches for project assets using the specified provider.
+ * Searches for project assets using multiple providers and appends link cards.
  *
- * For each planned scene with visualPlan decision stock_asset and enabled queries,
- * this use case:
+ * For each planned scene with enabled queries, this use case:
  * 1. Loads the project through the repository
- * 2. Checks the cache for existing results
- * 3. Searches the provider for new results (cache miss)
- * 4. Validates cached candidates with AssetCandidateSchema
- * 5. Deduplicates candidates across queries
- * 6. Updates the project with search results
- * 7. Saves through repository (unless dry-run)
+ * 2. For each enabled query, searches all configured providers (with caching)
+ * 3. Deduplicates asset candidates across providers and queries
+ * 4. Generates "search link card" candidates for platforms without an API
+ * 5. Updates the project with combined search results
+ * 6. Saves through repository (unless dry-run)
+ *
+ * Any scene can be searched — there is no stock_asset gating.
  */
 export async function searchProjectAssets(
   input: SearchProjectAssetsInput,
-  repository: ProjectRepository,
-  provider: SearchProvider,
-  cache: SearchCache,
-  now: () => Date,
+  deps: SearchProjectAssetsDeps,
 ): Promise<SearchProjectAssetsResult> {
   // Step 1: Load project
-  const project = await repository.load(input.projectRoot);
+  const project = await deps.repository.load(input.projectRoot);
 
   // Step 2: Check if project has been planned
   if (!project.generation || project.scenes.length === 0) {
@@ -103,176 +141,101 @@ export async function searchProjectAssets(
     throw new ProjectNotPlannedError(`Scene not found: ${input.sceneId}`);
   }
 
+  // Step 4: Resolve providers (default to fixture when none specified)
+  const providerNames = input.providers.length > 0 ? input.providers : ["fixture"];
+  const providers: SearchProvider[] = [];
+  for (const name of providerNames) {
+    providers.push(await deps.createProvider(name));
+  }
+
   let totalCandidates = 0;
   let cacheHits = 0;
   let cacheMisses = 0;
   const allWarnings: Array<{ code: string; message: string; queryId?: string }> = [];
 
-  // Step 4: Process each scene
+  // Step 5: Process each scene
   for (const scene of scenes) {
-    // Skip non-stock_asset scenes
-    if (scene.visualPlan.decision !== "stock_asset") {
-      continue;
-    }
-
     // Filter enabled queries only
     const enabledQueries = scene.search.queries.filter((q) => q.enabled);
     if (enabledQueries.length === 0) {
       continue;
     }
 
-    const allCandidates: AssetCandidate[] = [];
+    const assetCandidates: PortAssetCandidate[] = [];
 
-    // Process each enabled query for this scene
+    // Process each enabled query against each provider
     for (const query of enabledQueries) {
-      const searchInput = buildSearchInput(
-        query,
-        scene,
-        project.project.aspectRatio,
-        provider.capabilities,
-        input.maxAssetsPerQuery,
-        project.project.assetUsePolicy,
-      );
-
-      // Build cache input (avoids caching the full AssetCandidate objects)
-      const cacheInput: CacheSearchInput = {
-        queryId: searchInput.queryId,
-        query: searchInput.query,
-        language: searchInput.language,
-        mediaTypes: searchInput.mediaTypes,
-        orientation: searchInput.orientation,
-        perPage: searchInput.perPage,
-        page: searchInput.page,
-        sceneId: searchInput.sceneId,
-      };
-
-      let searchResult: AssetSearchResult;
-
-      // Check cache first (unless --refresh)
-      if (!input.refresh) {
-        const cacheKey = computeProviderCacheKey(
-          cacheInput,
-          provider.providerId,
-          provider.providerPolicyRevision,
+      for (const provider of providers) {
+        const searchInput = buildSearchInput(
+          query,
+          scene,
+          project.project.aspectRatio,
+          provider.capabilities,
+          input.maxAssetsPerQuery,
+          project.project.assetUsePolicy,
         );
-        const cacheResult = await cache.read(cacheKey);
 
-        if (cacheResult.hit && cacheResult.entry) {
+        const cacheInput: CacheSearchInput = {
+          queryId: searchInput.queryId,
+          query: searchInput.query,
+          language: searchInput.language,
+          mediaTypes: searchInput.mediaTypes,
+          orientation: searchInput.orientation,
+          perPage: searchInput.perPage,
+          page: searchInput.page,
+          sceneId: searchInput.sceneId,
+        };
+
+        const cache = deps.createCache(input.projectRoot, provider.providerId);
+
+        const searchResult = await resolveSearchResult(
+          searchInput,
+          cacheInput,
+          provider,
+          cache,
+          input.refresh ?? false,
+          deps.now,
+        );
+
+        if (searchResult.fromCache) {
           cacheHits++;
-          // Validate cached candidates before using them
-          try {
-            const cachedCandidates = AssetCandidateSchema.array().parse(cacheResult.entry.response);
-            searchResult = {
-              candidates: cachedCandidates as AssetCandidate[],
-              warnings: cacheResult.entry.warnings,
-            };
-          } catch {
-            // Cache contains invalid candidates - fall through to provider search
-            cacheMisses++;
-            searchResult = await provider.search(searchInput);
-            // Write to cache with full candidates (stored as plain objects)
-            try {
-              await cache.write(
-                computeProviderCacheKey(
-                  cacheInput,
-                  provider.providerId,
-                  provider.providerPolicyRevision,
-                ),
-                {
-                  schemaVersion: "0.1",
-                  providerId: provider.providerId,
-                  providerPolicyRevision: provider.providerPolicyRevision,
-                  createdAt: now().toISOString(),
-                  expiresAt: new Date(now().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                  request: cacheInput,
-                  response: searchResult.candidates as unknown as ReadonlyArray<
-                    Record<string, unknown>
-                  >,
-                  warnings: searchResult.warnings,
-                },
-              );
-            } catch {
-              // Cache write failure is non-fatal
-            }
-          }
         } else {
           cacheMisses++;
-          // Search provider
-          searchResult = await provider.search(searchInput);
-          // Write to cache with full candidates (stored as plain objects)
-          try {
-            await cache.write(
-              computeProviderCacheKey(
-                cacheInput,
-                provider.providerId,
-                provider.providerPolicyRevision,
-              ),
-              {
-                schemaVersion: "0.1",
-                providerId: provider.providerId,
-                providerPolicyRevision: provider.providerPolicyRevision,
-                createdAt: now().toISOString(),
-                expiresAt: new Date(now().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                request: cacheInput,
-                response: searchResult.candidates as unknown as ReadonlyArray<
-                  Record<string, unknown>
-                >,
-                warnings: searchResult.warnings,
-              },
-            );
-          } catch {
-            // Cache write failure is non-fatal
-          }
         }
-      } else {
-        cacheMisses++;
-        // Search provider
-        searchResult = await provider.search(searchInput);
-        // Write to cache with full candidates (stored as plain objects)
-        try {
-          await cache.write(
-            computeProviderCacheKey(
-              cacheInput,
-              provider.providerId,
-              provider.providerPolicyRevision,
-            ),
-            {
-              schemaVersion: "0.1",
-              providerId: provider.providerId,
-              providerPolicyRevision: provider.providerPolicyRevision,
-              createdAt: now().toISOString(),
-              expiresAt: new Date(now().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-              request: cacheInput,
-              response: searchResult.candidates as unknown as ReadonlyArray<
-                Record<string, unknown>
-              >,
-              warnings: searchResult.warnings,
-            },
-          );
-        } catch {
-          // Cache write failure is non-fatal
-        }
+
+        assetCandidates.push(...searchResult.candidates);
+        allWarnings.push(...searchResult.warnings);
       }
-
-      allCandidates.push(...searchResult.candidates);
-      allWarnings.push(...searchResult.warnings);
     }
 
-    // Deduplicate and rank candidates for this scene
-    const dedupedCandidates = deduplicateCandidates(allCandidates);
-    scene.search.candidates = dedupedCandidates;
+    // Deduplicate asset candidates across providers and queries
+    const dedupedAssets = deduplicateCandidates(assetCandidates);
 
-    if (dedupedCandidates.length > 0) {
-      scene.search.lastSearchedAt = now().toISOString();
+    // Generate link candidates from the first enabled query
+    const firstQuery = enabledQueries[0]!;
+    const keyword = firstQuery.query;
+    const retrievedAt = deps.now().toISOString();
+    const linkCandidates = deps.linkGenerator.generateLinks({
+      keyword,
+      matchedQueryId: firstQuery.id,
+      retrievedAt,
+    });
+
+    // Combine: asset candidates first, then link cards
+    const combined = [...dedupedAssets, ...linkCandidates];
+    scene.search.candidates = combined;
+
+    if (combined.length > 0) {
+      scene.search.lastSearchedAt = retrievedAt;
     }
 
-    totalCandidates += dedupedCandidates.length;
+    totalCandidates += combined.length;
   }
 
-  // Step 5: Update project.updatedAt
-  project.project.updatedAt = now().toISOString();
+  // Step 6: Update project.updatedAt
+  project.project.updatedAt = deps.now().toISOString();
 
-  // Step 6: Validate full project before save
+  // Step 7: Validate full project before save
   try {
     SpeechToSceneProjectSchema.parse(project);
   } catch (error) {
@@ -283,10 +246,10 @@ export async function searchProjectAssets(
     );
   }
 
-  // Step 7: Save unless dry-run
+  // Step 8: Save unless dry-run
   if (!input.dryRun) {
     try {
-      await repository.save(input.projectRoot, project);
+      await deps.repository.save(input.projectRoot, project);
     } catch (error) {
       throw new ProjectValidationError(
         error instanceof Error ? error.message : "Failed to save project",
@@ -310,6 +273,68 @@ export async function searchProjectAssets(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolves a search result from cache or provider, writing to cache on miss.
+ */
+async function resolveSearchResult(
+  searchInput: AssetSearchInput,
+  cacheInput: CacheSearchInput,
+  provider: SearchProvider,
+  cache: SearchCache,
+  refresh: boolean,
+  now: () => Date,
+): Promise<{ candidates: PortAssetCandidate[]; warnings: ReadonlyArray<{ code: string; message: string; queryId?: string }>; fromCache: boolean }> {
+  const cacheKey = computeProviderCacheKey(
+    cacheInput,
+    provider.providerId,
+    provider.providerPolicyRevision,
+  );
+
+  // Try cache first (unless refresh)
+  if (!refresh) {
+    const cacheResult = await cache.read(cacheKey);
+    if (cacheResult.hit && cacheResult.entry) {
+      try {
+        const cachedCandidates = AssetCandidateSchema.array().parse(cacheResult.entry.response);
+        return {
+          candidates: cachedCandidates.filter(
+            (c): c is PortAssetCandidate => c.kind === "asset",
+          ),
+          warnings: cacheResult.entry.warnings,
+          fromCache: true,
+        };
+      } catch {
+        // Cache contains invalid candidates — fall through to provider search
+      }
+    }
+  }
+
+  // Search provider
+  const searchResult = await provider.search(searchInput);
+
+  // Write to cache (non-fatal on failure)
+  try {
+    await cache.write(cacheKey, {
+      schemaVersion: "0.1",
+      providerId: provider.providerId,
+      providerPolicyRevision: provider.providerPolicyRevision,
+      createdAt: now().toISOString(),
+      expiresAt: new Date(now().getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      request: cacheInput,
+      response: searchResult.candidates as unknown as ReadonlyArray<Record<string, unknown>>,
+      warnings: searchResult.warnings,
+    });
+  } catch {
+    // Cache write failure is non-fatal
+  }
+
+  return {
+    candidates: [...searchResult.candidates],
+    warnings: searchResult.warnings,
+    fromCache: false,
+  };
+}
 
 /**
  * Builds a search input from a scene query.
@@ -365,8 +390,8 @@ function mapAspectRatioToOrientation(aspectRatio: string): "portrait" | "landsca
 /**
  * Deduplicates candidates by provider+mediaType+providerAssetId, keeping highest rank.
  */
-function deduplicateCandidates(candidates: readonly AssetCandidate[]): AssetCandidate[] {
-  const seen = new Map<string, AssetCandidate>();
+function deduplicateCandidates(candidates: readonly PortAssetCandidate[]): PortAssetCandidate[] {
+  const seen = new Map<string, PortAssetCandidate>();
 
   for (const candidate of candidates) {
     const key = `${candidate.provider.id}\t${candidate.mediaType}\t${candidate.providerAssetId}`;

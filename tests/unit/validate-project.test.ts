@@ -1,3 +1,15 @@
+/**
+ * Unit tests for the validateProject use case.
+ *
+ * Phase 1 material-discovery redesign: the review state machine and local-asset
+ * upload have been removed. Validation now checks:
+ * 1. Source file exists and SHA-256 matches.
+ * 2. Scene has candidates (warning if none).
+ * 3. Asset-kind candidate metadata (creator, orientation).
+ *
+ * Tests for selected-candidate / local-asset validation have been removed
+ * because those features no longer exist.
+ */
 import { afterEach, describe, expect, it } from "vitest";
 
 import crypto from "node:crypto";
@@ -58,6 +70,7 @@ function sha256(bytes: Uint8Array | string): string {
 
 function makeCandidate(overrides: Partial<AssetCandidate> = {}): AssetCandidate {
   return {
+    kind: "asset",
     id: "candidate-001",
     provider: {
       id: "fixture",
@@ -92,7 +105,7 @@ function makeCandidate(overrides: Partial<AssetCandidate> = {}): AssetCandidate 
     matchedQueryId: "query-001",
     rank: 1,
     ...overrides,
-  };
+  } as AssetCandidate;
 }
 
 function makeProject(overrides: Partial<SpeechToSceneProject> = {}): SpeechToSceneProject {
@@ -155,7 +168,6 @@ function makeProject(overrides: Partial<SpeechToSceneProject> = {}): SpeechToSce
           visualKeywords: ["fixture"],
         },
         search: { queries: [], candidates: [] },
-        review: { kind: "skipped", decidedAt: FIXED_NOW },
       },
     ],
   });
@@ -183,14 +195,29 @@ afterEach(async () => {
 // ---------------------------------------------------------------------------
 
 describe("validateProject", () => {
-  it("passes a complete project with matching source hash", async () => {
+  it("passes a complete project with matching source hash and candidates", async () => {
     const projectRoot = await makeTempRoot();
-    const project = makeProject();
+    const candidate = makeCandidate();
+    const project = makeProject({
+      scenes: [
+        {
+          ...makeProject().scenes[0]!,
+          search: {
+            queries: [
+              { id: "query-001", language: "en", query: "city", purpose: "background", enabled: true },
+            ],
+            candidates: [candidate],
+            lastSearchedAt: FIXED_NOW,
+          },
+        },
+      ],
+    });
     await writeSource(projectRoot, project);
 
     const result = await validateProject(projectRoot, new InMemoryRepository(project));
 
-    expect(result).toEqual({ ok: true, errorCount: 0, warningCount: 0, issues: [] });
+    expect(result.ok).toBe(true);
+    expect(result.errorCount).toBe(0);
   });
 
   it("reports project_missing when the project cannot be loaded", async () => {
@@ -223,7 +250,7 @@ describe("validateProject", () => {
     expect(result.issues.map((issue) => issue.code)).toContain("source_hash_mismatch");
   });
 
-  it("warns when a stock_asset scene has no candidates and remains pending", async () => {
+  it("warns when a scene has no candidates", async () => {
     const projectRoot = await makeTempRoot();
     const project = makeProject({
       scenes: [
@@ -247,7 +274,6 @@ describe("validateProject", () => {
             ],
             candidates: [],
           },
-          review: { kind: "pending" },
         },
       ],
     });
@@ -256,172 +282,7 @@ describe("validateProject", () => {
     const result = await validateProject(projectRoot, new InMemoryRepository(project));
 
     expect(result.ok).toBe(true);
-    expect(result.issues.map((issue) => issue.code)).toEqual(
-      expect.arrayContaining(["scene_pending", "stock_asset_no_candidates"]),
-    );
-  });
-
-  it("reports selected candidates that no longer exist in the candidates list", async () => {
-    const projectRoot = await makeTempRoot();
-    const selected = makeCandidate({ id: "candidate-missing" });
-    const project = makeProject({
-      scenes: [
-        {
-          ...makeProject().scenes[0]!,
-          search: {
-            queries: [
-              {
-                id: "query-001",
-                language: "en",
-                query: "city",
-                purpose: "background",
-                enabled: true,
-              },
-            ],
-            candidates: [makeCandidate({ id: "candidate-001" })],
-            lastSearchedAt: FIXED_NOW,
-          },
-          review: {
-            kind: "candidate_selected",
-            selection: { selectedAt: FIXED_NOW, candidate: selected },
-          },
-        },
-      ],
-    });
-    await writeSource(projectRoot, project);
-
-    const result = await validateProject(projectRoot, new InMemoryRepository(project));
-
-    expect(result.ok).toBe(false);
-    expect(result.issues.map((issue) => issue.code)).toContain("selected_candidate_missing");
-  });
-
-  it("warns when a selected candidate has not been imported locally", async () => {
-    const projectRoot = await makeTempRoot();
-    const candidate = makeCandidate();
-    const project = makeProject({
-      scenes: [
-        {
-          ...makeProject().scenes[0]!,
-          search: {
-            queries: [
-              {
-                id: "query-001",
-                language: "en",
-                query: "city",
-                purpose: "background",
-                enabled: true,
-              },
-            ],
-            candidates: [candidate],
-            lastSearchedAt: FIXED_NOW,
-          },
-          review: { kind: "candidate_selected", selection: { selectedAt: FIXED_NOW, candidate } },
-        },
-      ],
-    });
-    await writeSource(projectRoot, project);
-
-    const result = await validateProject(projectRoot, new InMemoryRepository(project));
-
-    expect(result.ok).toBe(true);
-    expect(result.issues.map((issue) => issue.code)).toContain(
-      "selected_candidate_without_local_asset",
-    );
-  });
-
-  it("reports missing local asset files", async () => {
-    const projectRoot = await makeTempRoot();
-    const project = makeProject({
-      scenes: [
-        {
-          ...makeProject().scenes[0]!,
-          review: {
-            kind: "local_asset_attached",
-            localAsset: {
-              relativePath: "assets/scene-001/missing.png",
-              originalFileName: "missing.png",
-              mimeType: "image/png",
-              sizeBytes: 4,
-              sha256: sha256("data"),
-              importedAt: FIXED_NOW,
-              provenance: { kind: "user_owned" },
-            },
-          },
-        },
-      ],
-    });
-    await writeSource(projectRoot, project);
-
-    const result = await validateProject(projectRoot, new InMemoryRepository(project));
-
-    expect(result.ok).toBe(false);
-    expect(result.issues.map((issue) => issue.code)).toContain("local_asset_missing");
-  });
-
-  it("reports local asset hash mismatches", async () => {
-    const projectRoot = await makeTempRoot();
-    await fs.mkdir(path.join(projectRoot, "assets/scene-001"), { recursive: true });
-    await fs.writeFile(path.join(projectRoot, "assets/scene-001/asset.png"), "changed");
-    const project = makeProject({
-      scenes: [
-        {
-          ...makeProject().scenes[0]!,
-          review: {
-            kind: "local_asset_attached",
-            localAsset: {
-              relativePath: "assets/scene-001/asset.png",
-              originalFileName: "asset.png",
-              mimeType: "image/png",
-              sizeBytes: 4,
-              sha256: sha256("data"),
-              importedAt: FIXED_NOW,
-              provenance: { kind: "user_owned" },
-            },
-          },
-        },
-      ],
-    });
-    await writeSource(projectRoot, project);
-
-    const result = await validateProject(projectRoot, new InMemoryRepository(project));
-
-    expect(result.ok).toBe(false);
-    expect(result.issues.map((issue) => issue.code)).toContain("local_asset_hash_mismatch");
-  });
-
-  it("warns for local assets without selected_candidate provenance", async () => {
-    const projectRoot = await makeTempRoot();
-    const bytes = "data";
-    await fs.mkdir(path.join(projectRoot, "assets/scene-001"), { recursive: true });
-    await fs.writeFile(path.join(projectRoot, "assets/scene-001/asset.png"), bytes);
-    const project = makeProject({
-      scenes: [
-        {
-          ...makeProject().scenes[0]!,
-          review: {
-            kind: "local_asset_attached",
-            localAsset: {
-              relativePath: "assets/scene-001/asset.png",
-              originalFileName: "asset.png",
-              mimeType: "image/png",
-              sizeBytes: 4,
-              sha256: sha256(bytes),
-              importedAt: FIXED_NOW,
-              provenance: { kind: "user_owned" },
-            },
-          },
-        },
-      ],
-    });
-    await writeSource(projectRoot, project);
-
-    const result = await validateProject(projectRoot, new InMemoryRepository(project));
-
-    expect(result.ok).toBe(true);
-    expect(result.issues.map((issue) => issue.code)).toContain(
-      "local_asset_without_source_candidate",
-    );
+    expect(result.issues.map((issue) => issue.code)).toContain("scene_no_candidates");
   });
 
   it("warns when remote candidate attribution or orientation is suspicious", async () => {

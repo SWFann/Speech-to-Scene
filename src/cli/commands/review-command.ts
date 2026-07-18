@@ -30,11 +30,13 @@ import { createProjectFromContent as createProjectFromContentUseCase } from "../
 import { planProject as planProjectUseCase } from "../../application/plan-script.js";
 import type { Settings } from "../../application/ports/settings-store.js";
 import { FsSettingsStore } from "../../infrastructure/settings-store.js";
+import { DefaultLinkSuggestionGenerator } from "../../infrastructure/link-suggestion-generator.js";
 import {
   createSearchProvider,
   getSearchCacheDir,
   createPlannerProvider,
   assetProviderEnvFromSettings,
+  resolveConfiguredProviders,
 } from "../provider-factory.js";
 import { FileSearchCache } from "../../infrastructure/file-search-cache.js";
 import { readEnv } from "../../infrastructure/env.js";
@@ -113,6 +115,7 @@ export function createReviewCommand(ctx: CommandContext): Command {
 
         // Start server with injected dependencies
         const assetProviderEnv = readEnv().assetProvider;
+        const linkGenerator = new DefaultLinkSuggestionGenerator();
         const searchSceneAssetsBound = (input: unknown): Promise<SearchProjectAssetsResult> =>
           searchSceneAssets(input, {
             repository: ctx.repository,
@@ -120,6 +123,7 @@ export function createReviewCommand(ctx: CommandContext): Command {
               createSearchProvider(providerName, assetProviderEnv),
             createCache: (projectRoot: string, providerName: string) =>
               new FileSearchCache({ cacheDir: getSearchCacheDir(projectRoot, providerName) }),
+            linkGenerator,
             now: () => new Date(),
           });
 
@@ -129,10 +133,6 @@ export function createReviewCommand(ctx: CommandContext): Command {
           updateScene: ctx.updateScene,
           updateSceneQueries: ctx.updateSceneQueries,
           searchSceneAssets: searchSceneAssetsBound,
-          selectCandidate: ctx.selectCandidate,
-          skipScene: ctx.skipScene,
-          attachLocalAsset: ctx.attachLocalAsset,
-          assetWriter: ctx.assetWriter,
 
           // E1: settings (workspace-level, settings.json priority over .env)
           getSettings: async () => settingsStore.toView(await settingsStore.load()),
@@ -180,25 +180,34 @@ export function createReviewCommand(ctx: CommandContext): Command {
           searchProjectAssets: async (input: unknown) => {
             const searchInput = input as {
               projectRoot: string;
-              provider: string;
+              providers?: readonly string[];
               maxAssetsPerQuery: number;
               refresh?: boolean;
               dryRun?: boolean;
             };
             const settings = await settingsStore.load();
-            const provider = await createSearchProvider(
-              searchInput.provider,
-              assetProviderEnvFromSettings(settings),
-            );
-            const cache = new FileSearchCache({
-              cacheDir: getSearchCacheDir(searchInput.projectRoot, searchInput.provider),
-            });
+            const providerEnv = assetProviderEnvFromSettings(settings);
+            const providers =
+              searchInput.providers && searchInput.providers.length > 0
+                ? resolveConfiguredProviders(providerEnv, searchInput.providers)
+                : resolveConfiguredProviders(providerEnv);
             return searchProjectAssetsUseCase(
-              searchInput,
-              ctx.repository,
-              provider,
-              cache,
-              () => new Date(),
+              {
+                projectRoot: searchInput.projectRoot,
+                providers,
+                maxAssetsPerQuery: searchInput.maxAssetsPerQuery,
+                ...(searchInput.refresh !== undefined ? { refresh: searchInput.refresh } : {}),
+                ...(searchInput.dryRun !== undefined ? { dryRun: searchInput.dryRun } : {}),
+              },
+              {
+                repository: ctx.repository,
+                createProvider: async (providerName: string) =>
+                  createSearchProvider(providerName, providerEnv),
+                createCache: (projectRoot: string, providerName: string) =>
+                  new FileSearchCache({ cacheDir: getSearchCacheDir(projectRoot, providerName) }),
+                linkGenerator,
+                now: () => new Date(),
+              },
             );
           },
         };

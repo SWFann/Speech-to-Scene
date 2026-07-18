@@ -1,3 +1,11 @@
+/**
+ * Unit tests for getProjectStatusUseCase.
+ *
+ * Phase 1 material-discovery redesign: the review state machine has been
+ * removed. Status now reflects search progress only (pending vs
+ * candidates_ready). These tests verify the new search-based status.
+ */
+
 import { describe, expect, it, beforeEach } from "vitest";
 
 import { getProjectStatusUseCase } from "../../src/application/get-project-status.js";
@@ -90,9 +98,10 @@ function makeProject(overrides: Record<string, unknown> = {}): SpeechToSceneProj
   });
 }
 
-/** A minimal candidate object for candidate_selected review tests. */
+/** A minimal asset-kind candidate for search status tests. */
 function makeCandidate(): Record<string, unknown> {
   return {
+    kind: "asset",
     id: "candidate-001",
     provider: {
       id: "pexels",
@@ -103,18 +112,18 @@ function makeCandidate(): Record<string, unknown> {
       termsCheckedAt: "2026-07-13T10:00:00Z",
     },
     providerAssetId: "photo-12345",
-    mediaType: "photo" as const,
+    mediaType: "photo",
     thumbnailUrl: "https://images.pexels.com/photos/12345/thumb.jpg",
     sourcePageUrl: "https://www.pexels.com/photo/12345",
     width: 1080,
     height: 1920,
-    orientation: "portrait" as const,
+    orientation: "portrait",
     creator: { name: "John Doe" },
     rights: {
-      status: "unknown" as const,
+      status: "unknown",
       attributionRequired: false,
-      commercialUse: "unclear" as const,
-      derivatives: "unclear" as const,
+      commercialUse: "unclear",
+      derivatives: "unclear",
       verifiedAt: "2026-07-13T10:00:00Z",
       evidence: {
         capturedAt: "2026-07-13T10:00:00Z",
@@ -125,21 +134,6 @@ function makeCandidate(): Record<string, unknown> {
     retrievedAt: "2026-07-13T10:00:00Z",
     matchedQueryId: "query-001",
     rank: 1,
-  };
-}
-
-function makeLocalAsset(): Record<string, unknown> {
-  return {
-    relativePath: "assets/scene-00000001/test.png",
-    originalFileName: "test.png",
-    mimeType: "image/png",
-    sizeBytes: 1024,
-    sha256: "b".repeat(64),
-    importedAt: "2026-07-13T11:00:00.000Z",
-    provenance: {
-      kind: "selected_candidate" as const,
-      candidateId: "candidate-001",
-    },
   };
 }
 
@@ -164,7 +158,6 @@ function makeBaseScene(overrides: Record<string, unknown> = {}): Record<string, 
       visualKeywords: ["greeting"],
     },
     search: { queries: [], candidates: [] },
-    review: { kind: "pending" },
     ...overrides,
   };
 }
@@ -206,16 +199,23 @@ describe("getProjectStatusUseCase", () => {
   // --- Project with scenes ---
 
   it("returns correct scene count and byStatus breakdown", async () => {
+    const candidate = makeCandidate();
     const project = makeProject({
       generation: makeGeneration(),
       scenes: [
-        makeBaseScene({ id: "scene-00000001", order: 1, review: { kind: "pending" } }),
+        makeBaseScene({ id: "scene-00000001", order: 1, search: { queries: [], candidates: [] } }),
         makeBaseScene({
           id: "scene-00000002",
           order: 2,
-          review: { kind: "skipped", decidedAt: "2026-07-13T10:00:00.000Z" },
+          search: {
+            queries: [
+              { id: "query-001", language: "en", query: "test", purpose: "visual", enabled: true },
+            ],
+            candidates: [candidate],
+            lastSearchedAt: "2026-07-13T10:00:00.000Z",
+          },
         }),
-        makeBaseScene({ id: "scene-00000003", order: 3, review: { kind: "pending" } }),
+        makeBaseScene({ id: "scene-00000003", order: 3, search: { queries: [], candidates: [] } }),
       ],
     });
     repository.setProject("/tmp/test-project", project);
@@ -223,7 +223,7 @@ describe("getProjectStatusUseCase", () => {
     const view = await getProjectStatusUseCase("/tmp/test-project", repository);
 
     expect(view.scenes.total).toBe(3);
-    expect(view.scenes.byStatus).toEqual({ pending: 2, skipped: 1 });
+    expect(view.scenes.byStatus).toEqual({ pending: 2, candidates_ready: 1 });
   });
 
   // --- Source fields ---
@@ -270,23 +270,20 @@ describe("getProjectStatusUseCase", () => {
     await expect(getProjectStatusUseCase("/nonexistent", repository)).rejects.toThrow();
   });
 
-  // --- Review statistics ---
+  // --- Search statistics ---
 
-  describe("review statistics", () => {
+  describe("search statistics", () => {
     it("returns zero counts for 0 scenes", async () => {
       const project = makeProject({ scenes: [] });
       repository.setProject("/tmp/test-project", project);
 
       const view = await getProjectStatusUseCase("/tmp/test-project", repository);
 
-      expect(view.review).toEqual({
+      expect(view.search).toEqual({
         totalScenes: 0,
         pending: 0,
-        skipped: 0,
-        candidateSelected: 0,
-        localAssetAttached: 0,
-        withLocalAsset: 0,
-        completionRatio: 0,
+        candidatesReady: 0,
+        searchedRatio: 0,
       });
     });
 
@@ -294,28 +291,15 @@ describe("getProjectStatusUseCase", () => {
       const project = makeProject({
         generation: makeGeneration(),
         scenes: [
-          makeBaseScene({ id: "scene-00000001", order: 1, review: { kind: "pending" } }),
-          makeBaseScene({ id: "scene-00000002", order: 2, review: { kind: "pending" } }),
-        ],
-      });
-      repository.setProject("/tmp/test-project", project);
-
-      const view = await getProjectStatusUseCase("/tmp/test-project", repository);
-
-      expect(view.review.totalScenes).toBe(2);
-      expect(view.review.pending).toBe(2);
-      expect(view.review.completionRatio).toBe(0);
-    });
-
-    it("counts skipped scenes", async () => {
-      const project = makeProject({
-        generation: makeGeneration(),
-        scenes: [
-          makeBaseScene({ id: "scene-00000001", order: 1, review: { kind: "pending" } }),
+          makeBaseScene({
+            id: "scene-00000001",
+            order: 1,
+            search: { queries: [], candidates: [] },
+          }),
           makeBaseScene({
             id: "scene-00000002",
             order: 2,
-            review: { kind: "skipped", decidedAt: "2026-07-13T10:00:00.000Z" },
+            search: { queries: [], candidates: [] },
           }),
         ],
       });
@@ -323,12 +307,13 @@ describe("getProjectStatusUseCase", () => {
 
       const view = await getProjectStatusUseCase("/tmp/test-project", repository);
 
-      expect(view.review.skipped).toBe(1);
-      expect(view.review.pending).toBe(1);
-      expect(view.review.completionRatio).toBe(0.5);
+      expect(view.search.totalScenes).toBe(2);
+      expect(view.search.pending).toBe(2);
+      expect(view.search.candidatesReady).toBe(0);
+      expect(view.search.searchedRatio).toBe(0);
     });
 
-    it("counts candidate_selected without localAsset", async () => {
+    it("counts candidates_ready scenes", async () => {
       const candidate = makeCandidate();
       const project = makeProject({
         generation: makeGeneration(),
@@ -338,24 +323,11 @@ describe("getProjectStatusUseCase", () => {
             order: 1,
             search: {
               queries: [
-                {
-                  id: "query-001",
-                  language: "en",
-                  query: "test",
-                  purpose: "visual",
-                  enabled: true,
-                },
+                { id: "query-001", language: "en", query: "test", purpose: "visual", enabled: true },
               ],
               candidates: [candidate],
               lastSearchedAt: "2026-07-13T10:00:00.000Z",
             },
-            review: {
-              kind: "candidate_selected",
-              selection: {
-                selectedAt: "2026-07-13T11:00:00.000Z",
-                candidate,
-              },
-            },
           }),
         ],
       });
@@ -363,154 +335,59 @@ describe("getProjectStatusUseCase", () => {
 
       const view = await getProjectStatusUseCase("/tmp/test-project", repository);
 
-      expect(view.review.candidateSelected).toBe(1);
-      expect(view.review.localAssetAttached).toBe(0);
-      expect(view.review.withLocalAsset).toBe(0);
-      expect(view.review.pending).toBe(0);
-      expect(view.review.completionRatio).toBe(1);
+      expect(view.search.candidatesReady).toBe(1);
+      expect(view.search.pending).toBe(0);
+      expect(view.search.searchedRatio).toBe(1);
     });
 
-    it("counts candidate_selected with localAsset", async () => {
+    it("computes searchedRatio for mixed scenes", async () => {
       const candidate = makeCandidate();
-      const localAsset = makeLocalAsset();
-      const project = makeProject({
-        generation: makeGeneration(),
-        scenes: [
-          makeBaseScene({
-            id: "scene-00000001",
-            order: 1,
-            search: {
-              queries: [
-                {
-                  id: "query-001",
-                  language: "en",
-                  query: "test",
-                  purpose: "visual",
-                  enabled: true,
-                },
-              ],
-              candidates: [candidate],
-              lastSearchedAt: "2026-07-13T10:00:00.000Z",
-            },
-            review: {
-              kind: "candidate_selected",
-              selection: {
-                selectedAt: "2026-07-13T11:00:00.000Z",
-                candidate,
-              },
-              localAsset,
-            },
-          }),
-        ],
-      });
-      repository.setProject("/tmp/test-project", project);
-
-      const view = await getProjectStatusUseCase("/tmp/test-project", repository);
-
-      expect(view.review.candidateSelected).toBe(1);
-      expect(view.review.localAssetAttached).toBe(0);
-      expect(view.review.withLocalAsset).toBe(1);
-      expect(view.review.completionRatio).toBe(1);
-    });
-
-    it("counts local_asset_attached scenes", async () => {
-      const localAsset = makeLocalAsset();
-      const project = makeProject({
-        generation: makeGeneration(),
-        scenes: [
-          makeBaseScene({
-            id: "scene-00000001",
-            order: 1,
-            review: {
-              kind: "local_asset_attached",
-              localAsset,
-            },
-          }),
-        ],
-      });
-      repository.setProject("/tmp/test-project", project);
-
-      const view = await getProjectStatusUseCase("/tmp/test-project", repository);
-
-      expect(view.review.localAssetAttached).toBe(1);
-      expect(view.review.candidateSelected).toBe(0);
-      expect(view.review.withLocalAsset).toBe(1);
-      expect(view.review.completionRatio).toBe(1);
-    });
-
-    it("computes completionRatio for mixed scenes", async () => {
-      const candidate = makeCandidate();
-      const localAsset = makeLocalAsset();
       const project = makeProject({
         generation: makeGeneration(),
         scenes: [
           // pending
-          makeBaseScene({ id: "scene-00000001", order: 1, review: { kind: "pending" } }),
-          // skipped
+          makeBaseScene({
+            id: "scene-00000001",
+            order: 1,
+            search: { queries: [], candidates: [] },
+          }),
+          // candidates_ready
           makeBaseScene({
             id: "scene-00000002",
             order: 2,
-            review: { kind: "skipped", decidedAt: "2026-07-13T10:00:00.000Z" },
-          }),
-          // candidate_selected without localAsset
-          makeBaseScene({
-            id: "scene-00000003",
-            order: 3,
             search: {
               queries: [
-                {
-                  id: "query-001",
-                  language: "en",
-                  query: "test",
-                  purpose: "visual",
-                  enabled: true,
-                },
+                { id: "query-001", language: "en", query: "test", purpose: "visual", enabled: true },
               ],
               candidates: [candidate],
               lastSearchedAt: "2026-07-13T10:00:00.000Z",
             },
-            review: {
-              kind: "candidate_selected",
-              selection: {
-                selectedAt: "2026-07-13T11:00:00.000Z",
-                candidate,
-              },
-            },
           }),
-          // candidate_selected with localAsset
+          // pending
+          makeBaseScene({
+            id: "scene-00000003",
+            order: 3,
+            search: { queries: [], candidates: [] },
+          }),
+          // candidates_ready
           makeBaseScene({
             id: "scene-00000004",
             order: 4,
             search: {
               queries: [
-                {
-                  id: "query-001",
-                  language: "en",
-                  query: "test",
-                  purpose: "visual",
-                  enabled: true,
-                },
+                { id: "query-002", language: "en", query: "test2", purpose: "visual", enabled: true },
               ],
-              candidates: [candidate],
+              candidates: [
+                { ...candidate, id: "candidate-002", matchedQueryId: "query-002", rank: 2 },
+              ],
               lastSearchedAt: "2026-07-13T10:00:00.000Z",
             },
-            review: {
-              kind: "candidate_selected",
-              selection: {
-                selectedAt: "2026-07-13T11:00:00.000Z",
-                candidate,
-              },
-              localAsset,
-            },
           }),
-          // local_asset_attached
+          // pending
           makeBaseScene({
             id: "scene-00000005",
             order: 5,
-            review: {
-              kind: "local_asset_attached",
-              localAsset,
-            },
+            search: { queries: [], candidates: [] },
           }),
         ],
       });
@@ -518,13 +395,10 @@ describe("getProjectStatusUseCase", () => {
 
       const view = await getProjectStatusUseCase("/tmp/test-project", repository);
 
-      expect(view.review.totalScenes).toBe(5);
-      expect(view.review.pending).toBe(1);
-      expect(view.review.skipped).toBe(1);
-      expect(view.review.candidateSelected).toBe(2);
-      expect(view.review.localAssetAttached).toBe(1);
-      expect(view.review.withLocalAsset).toBe(2); // 1 candidate_selected+localAsset + 1 local_asset_attached
-      expect(view.review.completionRatio).toBe(4 / 5); // (5 - 1) / 5
+      expect(view.search.totalScenes).toBe(5);
+      expect(view.search.pending).toBe(3);
+      expect(view.search.candidatesReady).toBe(2);
+      expect(view.search.searchedRatio).toBe(2 / 5);
     });
   });
 });

@@ -3,9 +3,13 @@
  *
  * Read-only use case for `s2s validate`:
  * 1. Load the project through the repository, reusing schema and relation checks.
- * 2. Verify source and local asset files still exist.
- * 3. Verify stored SHA-256 hashes still match the files on disk.
- * 4. Emit release-readiness warnings for incomplete review/search state.
+ * 2. Verify source file still exists.
+ * 3. Verify stored SHA-256 hash still matches the file on disk.
+ * 4. Emit release-readiness warnings for incomplete search state.
+ *
+ * Phase 1 redesign: the review state machine and local-asset upload have been
+ * removed. Validation now only checks source file integrity and candidate
+ * metadata (asset-kind only; link-kind candidates have no creator/orientation).
  */
 
 import crypto from "node:crypto";
@@ -14,7 +18,7 @@ import path from "node:path";
 
 import type { ProjectRepository } from "./ports/project-repository.js";
 import type { AssetCandidate } from "../domain/asset-schema.js";
-import type { LocalAsset, Scene } from "../domain/scene-schema.js";
+import type { Scene } from "../domain/scene-schema.js";
 import { AppError, ProjectNotFoundError } from "../shared/errors.js";
 
 // ---------------------------------------------------------------------------
@@ -76,22 +80,16 @@ async function sha256File(filePath: string): Promise<string> {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function expectedOrientation(aspectRatio: string): AssetCandidate["orientation"] {
+function expectedOrientation(aspectRatio: string): "portrait" | "landscape" | "square" {
   if (aspectRatio === "16:9") return "landscape";
   if (aspectRatio === "1:1") return "square";
   return "portrait";
 }
 
-function collectLocalAsset(scene: Scene): LocalAsset | null {
-  if (scene.review.kind === "candidate_selected") {
-    return scene.review.localAsset ?? null;
-  }
-  if (scene.review.kind === "local_asset_attached") {
-    return scene.review.localAsset;
-  }
-  return null;
-}
-
+/**
+ * Validates asset-kind candidate metadata (creator, orientation).
+ * Link-kind candidates are skipped — they have no image metadata.
+ */
 function validateCandidateWarnings(
   scene: Scene,
   sceneIndex: number,
@@ -101,8 +99,13 @@ function validateCandidateWarnings(
   const desiredOrientation = expectedOrientation(projectAspectRatio);
 
   for (let candidateIndex = 0; candidateIndex < scene.search.candidates.length; candidateIndex++) {
-    const candidate = scene.search.candidates[candidateIndex]!;
+    const candidate: AssetCandidate = scene.search.candidates[candidateIndex]!;
     const candidatePath = `scenes[${sceneIndex}].search.candidates[${candidateIndex}]`;
+
+    // Only asset-kind candidates have creator/orientation metadata
+    if (candidate.kind !== "asset") {
+      continue;
+    }
 
     if (candidate.creator.name === null || candidate.creator.name.trim() === "") {
       issues.push(
@@ -131,64 +134,18 @@ function validateCandidateWarnings(
   return issues;
 }
 
-function validateReviewState(scene: Scene, sceneIndex: number): ValidationIssue[] {
+/**
+ * Validates search state — emits a warning if a scene has no candidates.
+ */
+function validateSearchState(scene: Scene, sceneIndex: number): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const scenePath = `scenes[${sceneIndex}]`;
 
-  if (scene.review.kind === "pending") {
+  if (scene.search.candidates.length === 0) {
     issues.push(
-      makeIssue("warning", "scene_pending", "场景仍为 pending，尚未完成人工审阅", {
-        path: `${scenePath}.review`,
-        hint: "请在 Review Board 中选择素材、上传本地素材或跳过该场景。",
-      }),
-    );
-  }
-
-  if (scene.visualPlan.decision === "stock_asset" && scene.search.candidates.length === 0) {
-    issues.push(
-      makeIssue("warning", "stock_asset_no_candidates", "stock_asset 场景没有候选素材", {
+      makeIssue("warning", "scene_no_candidates", "场景尚未搜索素材", {
         path: `${scenePath}.search.candidates`,
-        hint: "运行 s2s search，或在 Review Board 中重新检索该场景。",
-      }),
-    );
-  }
-
-  if (scene.review.kind === "candidate_selected") {
-    const selectedCandidateId = scene.review.selection.candidate.id;
-    const candidateExists = scene.search.candidates.some(
-      (candidate) => candidate.id === selectedCandidateId,
-    );
-
-    if (!candidateExists) {
-      issues.push(
-        makeIssue("error", "selected_candidate_missing", "已选择的候选素材不在当前候选列表中", {
-          path: `${scenePath}.review.selection.candidate.id`,
-          hint: "请重新检索并重新选择素材，或上传本地素材。",
-        }),
-      );
-    }
-
-    if (scene.review.localAsset === undefined) {
-      issues.push(
-        makeIssue(
-          "warning",
-          "selected_candidate_without_local_asset",
-          "候选已选但尚未导入本地文件",
-          {
-            path: `${scenePath}.review.localAsset`,
-            hint: "请下载候选素材后通过 Review Board 上传本地文件。",
-          },
-        ),
-      );
-    }
-  }
-
-  const localAsset = collectLocalAsset(scene);
-  if (localAsset !== null && localAsset.provenance.kind !== "selected_candidate") {
-    issues.push(
-      makeIssue("warning", "local_asset_without_source_candidate", "本地文件缺少来源候选素材 ID", {
-        path: `${scenePath}.review.localAsset.provenance`,
-        hint: "若该素材来自搜索候选，请使用 selected_candidate provenance 重新上传。",
+        hint: "在 Review Board 中点击「搜索素材」按钮检索该场景。",
       }),
     );
   }
@@ -236,46 +193,6 @@ async function validateSourceFile(
   return issues;
 }
 
-async function validateLocalAssetFile(
-  projectRoot: string,
-  sceneIndex: number,
-  localAsset: LocalAsset,
-): Promise<ValidationIssue[]> {
-  const resolvedRoot = path.resolve(projectRoot);
-  const resolvedAsset = path.resolve(resolvedRoot, localAsset.relativePath);
-  const assetPath = `scenes[${sceneIndex}].review.localAsset`;
-
-  if (!pathStartsWith(resolvedRoot, resolvedAsset)) {
-    return [
-      makeIssue("error", "local_asset_path_unsafe", "本地素材路径不在项目目录内", {
-        path: `${assetPath}.relativePath`,
-        hint: "请删除该素材记录并通过 Review Board 重新上传。",
-      }),
-    ];
-  }
-
-  if (!(await fileExists(resolvedAsset))) {
-    return [
-      makeIssue("error", "local_asset_missing", "localAsset 文件不存在", {
-        path: `${assetPath}.relativePath`,
-        hint: "请恢复素材文件，或通过 Review Board 重新上传。",
-      }),
-    ];
-  }
-
-  const actualSha256 = await sha256File(resolvedAsset);
-  if (actualSha256 !== localAsset.sha256) {
-    return [
-      makeIssue("error", "local_asset_hash_mismatch", "localAsset Hash 与项目记录不匹配", {
-        path: `${assetPath}.sha256`,
-        hint: "素材文件可能被替换；请重新上传本地素材。",
-      }),
-    ];
-  }
-
-  return [];
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -319,13 +236,8 @@ export async function validateProject(
 
   for (let sceneIndex = 0; sceneIndex < project.scenes.length; sceneIndex++) {
     const scene = project.scenes[sceneIndex]!;
-    issues.push(...validateReviewState(scene, sceneIndex));
+    issues.push(...validateSearchState(scene, sceneIndex));
     issues.push(...validateCandidateWarnings(scene, sceneIndex, project.project.aspectRatio));
-
-    const localAsset = collectLocalAsset(scene);
-    if (localAsset !== null) {
-      issues.push(...(await validateLocalAssetFile(projectRoot, sceneIndex, localAsset)));
-    }
   }
 
   return summarize(issues);

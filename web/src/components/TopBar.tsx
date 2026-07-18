@@ -18,15 +18,14 @@ function isFixtureProject(project: ReviewProjectView | null): boolean {
   if (!project) return false;
   if (project.generation?.plannerProvider === "fixture") return true;
   return project.scenes.some((s) =>
-    s.search.candidates.some((c) => c.provider.id === "fixture"),
+    s.search.candidates.some((c) => c.kind === "asset" && c.provider.id === "fixture"),
   );
 }
 
 export function TopBar({ project, error, onSettings, onReset }: TopBarProps): React.ReactElement {
   const title = project?.project.title ?? "Speech-to-Scene";
   const sceneCount = project?.sceneCount ?? 0;
-  const producingCount = project?.producingSceneCount ?? 0;
-  const processedCount = producingCount;
+  const searchedCount = project?.searchedSceneCount ?? 0;
   const fixtureMode = isFixtureProject(project);
 
   return (
@@ -39,7 +38,7 @@ export function TopBar({ project, error, onSettings, onReset }: TopBarProps): Re
         <span>{title}</span>
         {project && (
           <span className="status-pill ok">
-            {processedCount} / {sceneCount} 场景已处理
+            {searchedCount} / {sceneCount} 场景已搜索
           </span>
         )}
         {error && (

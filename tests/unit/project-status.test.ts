@@ -1,4 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-argument */
+/**
+ * Unit tests for the domain-level getProjectStatus function.
+ *
+ * Phase 1 material-discovery redesign: the review state machine has been
+ * removed. Scene status now reflects search progress only:
+ * - `pending`: no candidates.
+ * - `candidates_ready`: the scene has been searched and has candidates.
+ * Project status is `created` (no generation) or `planned` (generation exists).
+ */
 import { describe, expect, it } from "vitest";
 
 import { getProjectStatus, type ProjectStatus } from "../../src/domain/project-status.js";
@@ -35,7 +44,6 @@ function buildProject(opts?: { generation?: any; scenes?: any[]; blocks?: any[] 
         visualKeywords: ["greeting"],
       },
       search: { queries: [], candidates: [] },
-      review: { kind: "pending" },
     },
   ];
 
@@ -73,6 +81,46 @@ function buildProject(opts?: { generation?: any; scenes?: any[]; blocks?: any[] 
   });
 }
 
+/** A minimal asset-kind candidate for search status tests. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeCandidate(id = "candidate-001"): any {
+  return {
+    kind: "asset",
+    id,
+    provider: {
+      id: "pexels",
+      name: "Pexels",
+      homepageUrl: "https://www.pexels.com",
+      termsUrl: "https://www.pexels.com/terms",
+      policyRevision: "1.0.0",
+      termsCheckedAt: "2026-07-13T10:00:00Z",
+    },
+    providerAssetId: "photo-12345",
+    mediaType: "photo",
+    thumbnailUrl: "https://images.pexels.com/photos/12345/thumb.jpg",
+    sourcePageUrl: "https://www.pexels.com/photo/12345",
+    width: 1920,
+    height: 1080,
+    orientation: "landscape",
+    creator: { name: "John Doe" },
+    rights: {
+      status: "unknown",
+      attributionRequired: false,
+      commercialUse: "unclear",
+      derivatives: "unclear",
+      verifiedAt: "2026-07-13T10:00:00Z",
+      evidence: {
+        capturedAt: "2026-07-13T10:00:00Z",
+        referenceUrl: "https://example.com/terms",
+        fields: {},
+      },
+    },
+    retrievedAt: "2026-07-13T10:00:00Z",
+    matchedQueryId: "query-001",
+    rank: 1,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // getProjectStatus
 // ---------------------------------------------------------------------------
@@ -83,7 +131,7 @@ describe("getProjectStatus", () => {
     const status: ProjectStatus = getProjectStatus(project);
     expect(status.status).toBe("created");
     expect(status.sceneCount).toBe(0);
-    expect(status.producingSceneCount).toBe(0);
+    expect(status.searchedSceneCount).toBe(0);
     expect(status.lastGenerationAt).toBeNull();
   });
 
@@ -117,16 +165,17 @@ describe("getProjectStatus", () => {
             visualKeywords: ["keyword"],
           },
           search: { queries: [], candidates: [] },
-          review: { kind: "pending" },
         },
       ],
     });
     const status: ProjectStatus = getProjectStatus(project);
     expect(status.status).toBe("planned");
     expect(status.lastGenerationAt).toBe("2026-07-13T12:00:00Z");
+    expect(status.searchedSceneCount).toBe(0);
   });
 
-  it("returns 'producing' when at least one scene is selected", () => {
+  it("counts searched scenes when at least one scene has candidates", () => {
+    const candidate = makeCandidate();
     const project = buildProject({
       generation: {
         plannerProvider: "deepseek",
@@ -155,57 +204,23 @@ describe("getProjectStatus", () => {
             preferredMedia: ["photo"],
             visualKeywords: ["keyword"],
           },
-          search: { queries: [], candidates: [] },
-          review: {
-            kind: "candidate_selected",
-            selection: {
-              selectedAt: "2026-07-13T12:00:00Z",
-              candidate: {
-                id: "candidate-001",
-                provider: {
-                  id: "pexels",
-                  name: "Pexels",
-                  homepageUrl: "https://www.pexels.com",
-                  termsUrl: "https://www.pexels.com/terms",
-                  policyRevision: "1.0.0",
-                  termsCheckedAt: "2026-07-13T10:00:00Z",
-                },
-                providerAssetId: "photo-12345",
-                mediaType: "photo",
-                thumbnailUrl: "https://images.pexels.com/photos/12345/thumb.jpg",
-                sourcePageUrl: "https://www.pexels.com/photo/12345",
-                width: 1920,
-                height: 1080,
-                orientation: "landscape",
-                creator: { name: "John Doe" },
-                rights: {
-                  status: "unknown",
-                  attributionRequired: false,
-                  commercialUse: "unclear",
-                  derivatives: "unclear",
-                  verifiedAt: "2026-07-13T10:00:00Z",
-                  evidence: {
-                    capturedAt: "2026-07-13T10:00:00Z",
-                    referenceUrl: "https://example.com/terms",
-                    fields: {},
-                  },
-                },
-                retrievedAt: "2026-07-13T10:00:00Z",
-                matchedQueryId: "query-001",
-                rank: 1,
-              },
-            },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          } as any,
+          search: {
+            queries: [
+              { id: "query-001", language: "en", query: "greeting", purpose: "visual", enabled: true },
+            ],
+            candidates: [candidate],
+            lastSearchedAt: "2026-07-13T12:00:00Z",
+          },
         },
       ],
     });
     const status: ProjectStatus = getProjectStatus(project);
     expect(status.status).toBe("planned");
-    expect(status.producingSceneCount).toBe(1);
+    expect(status.searchedSceneCount).toBe(1);
   });
 
   it("correctly derives per-scene statuses", () => {
+    const candidate = makeCandidate();
     const project = buildProject({
       generation: {
         plannerProvider: "deepseek",
@@ -235,7 +250,6 @@ describe("getProjectStatus", () => {
             visualKeywords: ["keyword"],
           },
           search: { queries: [], candidates: [] },
-          review: { kind: "pending" },
         },
         {
           id: "scene-002",
@@ -256,16 +270,20 @@ describe("getProjectStatus", () => {
             preferredMedia: ["photo"],
             visualKeywords: ["keyword"],
           },
-          search: { queries: [], candidates: [] },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          review: { kind: "skipped", decidedAt: "2026-07-13T12:00:00Z" } as any,
+          search: {
+            queries: [
+              { id: "query-001", language: "en", query: "farewell", purpose: "visual", enabled: true },
+            ],
+            candidates: [candidate],
+            lastSearchedAt: "2026-07-13T12:00:00Z",
+          },
         },
       ],
     });
     const status: ProjectStatus = getProjectStatus(project);
     expect(status.scenes).toHaveLength(2);
     expect(status.scenes[0]!.status).toBe("pending");
-    expect(status.scenes[1]!.status).toBe("skipped");
-    expect(status.producingSceneCount).toBe(1);
+    expect(status.scenes[1]!.status).toBe("candidates_ready");
+    expect(status.searchedSceneCount).toBe(1);
   });
 });

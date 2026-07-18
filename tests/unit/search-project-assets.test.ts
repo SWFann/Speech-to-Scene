@@ -1,12 +1,26 @@
+/**
+ * Unit tests for the searchProjectAssets use case.
+ *
+ * Phase 1 material-discovery redesign:
+ * - API changed from positional args to (input, deps) with a deps object.
+ * - Input uses `providers` (array) instead of `provider` (singular).
+ * - Any scene with enabled queries is searched (no stock_asset gating).
+ * - Link candidates (kind: "link") are appended after asset candidates.
+ *
+ * These tests use a stub linkGenerator (returns empty array) to focus on
+ * asset-candidate behavior. Link generation is tested in api-scene-search.
+ */
 import { describe, it, expect, vi } from "vitest";
 import {
   searchProjectAssets,
   type SearchProvider,
   type SearchProjectAssetsInput,
+  type SearchProjectAssetsDeps,
 } from "../../src/application/search-project-assets.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
 import type { SearchCache } from "../../src/application/ports/search-cache.js";
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
+import type { AssetCandidateLink } from "../../src/domain/asset-schema.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -32,6 +46,7 @@ function createMockCandidate(
   }> = {},
 ): object {
   return {
+    kind: "asset",
     id: "fixture-photo-1-1",
     provider: {
       id: "fixture",
@@ -150,7 +165,6 @@ function createMockProject(sceneCount: number = 2): SpeechToSceneProject {
         candidates: [],
         lastSearchedAt: undefined,
       },
-      review: { kind: "pending" as const },
     });
   }
 
@@ -185,7 +199,7 @@ function createMockProject(sceneCount: number = 2): SpeechToSceneProject {
       generatedAt: new Date().toISOString(),
     },
     scenes: scenes,
-  };
+  } as unknown as SpeechToSceneProject;
 }
 
 function createMockRepository(project: SpeechToSceneProject): ProjectRepository {
@@ -205,26 +219,50 @@ function createMockCache(): SearchCache {
   };
 }
 
+/** Stub link generator that returns no link candidates. */
+const stubLinkGenerator: SearchProjectAssetsDeps["linkGenerator"] = {
+  generateLinks: (): AssetCandidateLink[] => [],
+};
+
+/** Builds deps from individual mocks. */
+function makeDeps(
+  repository: ProjectRepository,
+  provider: SearchProvider,
+  cache: SearchCache,
+  nowFn: () => Date,
+): SearchProjectAssetsDeps {
+  return {
+    repository,
+    createProvider: vi.fn().mockResolvedValue(provider),
+    createCache: vi.fn().mockReturnValue(cache),
+    linkGenerator: stubLinkGenerator,
+    now: nowFn,
+  };
+}
+
+function makeInput(overrides: Partial<SearchProjectAssetsInput> = {}): SearchProjectAssetsInput {
+  return {
+    projectRoot: "/tmp/test-project",
+    providers: ["fixture"],
+    maxAssetsPerQuery: 10,
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("searchProjectAssets", (): void => {
   describe("success scenarios", (): void => {
-    it("searches all stock_asset scenes and returns results", async (): Promise<void> => {
+    it("searches all scenes with enabled queries and returns results", async (): Promise<void> => {
       const project = createMockProject(2);
       const repository = createMockRepository(project);
       const { provider } = createMockProvider();
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      const result = await searchProjectAssets(input, repository, provider, cache, nowFn);
+      const result = await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       expect(result.projectId).toBe("test-project");
       expect(result.status).toBe("searched");
@@ -232,22 +270,16 @@ describe("searchProjectAssets", (): void => {
       expect(result.totalCandidates).toBeGreaterThan(0);
     });
 
-    it("skips non-stock_asset scenes", async (): Promise<void> => {
+    it("skips scenes with no enabled queries", async (): Promise<void> => {
       const project = createMockProject(2);
-      project.scenes[0]!.visualPlan.decision = "speaker_only";
+      // Scene 0 has no enabled queries → should be skipped
       project.scenes[0]!.search.queries = [];
       const repository = createMockRepository(project);
       const { provider } = createMockProvider();
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      await searchProjectAssets(input, repository, provider, cache, nowFn);
+      await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       expect(project.scenes[0]!.search.candidates).toEqual([]);
       expect(project.scenes[1]!.search.candidates.length).toBeGreaterThan(0);
@@ -264,13 +296,7 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      await searchProjectAssets(input, repository, provider, cache, nowFn);
+      await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       const calls = searchMock.mock.calls as Array<
         [
@@ -294,13 +320,7 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      await searchProjectAssets(input, repository, provider, cache, nowFn);
+      await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       const calls = searchMock.mock.calls as Array<
         [
@@ -324,13 +344,7 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      await searchProjectAssets(input, repository, provider, cache, nowFn);
+      await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       expect(project.scenes[0]!.search.lastSearchedAt).toBeTruthy();
     });
@@ -343,13 +357,7 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      await searchProjectAssets(input, repository, provider, cache, nowFn);
+      await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       expect(project.scenes[0]!.search.lastSearchedAt).toBeUndefined();
     });
@@ -384,6 +392,7 @@ describe("searchProjectAssets", (): void => {
                 },
                 response: [
                   {
+                    kind: "asset",
                     id: "fixture-photo-q-1-1-1",
                     rank: 1,
                     provider: {
@@ -400,6 +409,7 @@ describe("searchProjectAssets", (): void => {
                     sourcePageUrl: "https://example.com/page",
                     width: 1920,
                     height: 1080,
+                    orientation: "landscape",
                     creator: { name: "Test", profileUrl: "https://example.com/photo" },
                     rights: {
                       status: "platform_license",
@@ -432,13 +442,7 @@ describe("searchProjectAssets", (): void => {
 
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      const result = await searchProjectAssets(input, repository, provider, cache, nowFn);
+      const result = await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       expect(result.cacheHits).toBeGreaterThanOrEqual(1);
       expect(result.cacheMisses).toBeGreaterThanOrEqual(1);
@@ -455,20 +459,19 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
-      await searchProjectAssets(input, repository, provider, cache, nowFn);
+      await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
 
       const candidates = project.scenes[0]!.search.candidates as Array<{
+        kind: string;
         provider: { id: string };
         mediaType: string;
         providerAssetId: string;
       }>;
-      const keys = candidates.map((c) => `${c.provider.id}\t${c.mediaType}\t${c.providerAssetId}`);
+      // Only check asset-kind candidates for dedup (link candidates have no provider)
+      const assetCandidates = candidates.filter((c) => c.kind === "asset");
+      const keys = assetCandidates.map(
+        (c) => `${c.provider.id}\t${c.mediaType}\t${c.providerAssetId}`,
+      );
       const uniqueKeys = new Set(keys);
       expect(uniqueKeys.size).toBe(keys.length);
     });
@@ -482,14 +485,8 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const input: SearchProjectAssetsInput = {
-        projectRoot: "/tmp/test-project",
-        provider: "fixture",
-        maxAssetsPerQuery: 10,
-      };
-
       await expect(
-        searchProjectAssets(input, repository, provider, cache, nowFn),
+        searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn)),
       ).rejects.toThrow();
     });
   });

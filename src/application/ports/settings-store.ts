@@ -18,6 +18,9 @@ export interface Settings {
   readonly pexelsApiKey?: string;
   readonly pexelsBaseUrl?: string;
   readonly pexelsVideoBaseUrl?: string;
+  readonly pixabayApiKey?: string;
+  readonly unsplashApiKey?: string;
+  readonly openverseApiKey?: string;
 }
 
 /**
@@ -29,6 +32,9 @@ export interface SettingsView {
   readonly hasDeepseekKey: boolean;
   readonly hasStepKey: boolean;
   readonly hasPexelsKey: boolean;
+  readonly hasPixabayKey: boolean;
+  readonly hasUnsplashKey: boolean;
+  readonly hasOpenverseKey: boolean;
   readonly deepseekBaseUrl: string;
   readonly deepseekModel: string;
   readonly stepBaseUrl: string;

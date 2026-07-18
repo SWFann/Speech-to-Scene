@@ -11,14 +11,15 @@
  * 5. Preserves scene.search.candidates — does not delete existing candidates.
  * 6. Preserves scene.search.lastSearchedAt — does not modify the timestamp.
  * 7. Query IDs must be unique within the new array.
- * 8. If scene.visualPlan.decision === "stock_asset", at least one enabled
- *    query is required; throws ProjectConflictError otherwise.
- * 9. Candidates' matchedQueryId must reference a query in the new array.
+ * 8. Candidates' matchedQueryId must reference a query in the new array.
  *    If not, schema validation will reject the project.
- * 10. Updates project.updatedAt.
- * 11. Re-validates the full project with SpeechToSceneProjectSchema.
- * 12. Saves through repository.save() — exactly one save call.
- * 13. Does not modify other scenes.
+ * 9. Updates project.updatedAt.
+ * 10. Re-validates the full project with SpeechToSceneProjectSchema.
+ * 11. Saves through repository.save() — exactly one save call.
+ * 12. Does not modify other scenes.
+ *
+ * Note: visualPlan.decision no longer gates search (Phase 1 redesign). A
+ * stock_asset scene may have zero enabled queries.
  */
 
 import { z } from "zod";
@@ -30,7 +31,6 @@ import { IdSchema, NonEmptyTrimmedStringSchema } from "../domain/schema-primitiv
 import {
   ProjectValidationError,
   SceneNotFoundError,
-  ProjectConflictError,
 } from "../shared/errors.js";
 
 // ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ export interface UpdateSceneQueriesDeps {
  * @throws {z.ZodError} If input fails schema validation (including duplicate IDs,
  *   empty query, empty purpose, invalid language).
  * @throws {SceneNotFoundError} If the sceneId does not exist in the project.
- * @throws {ProjectConflictError} If decision is stock_asset but no enabled query.
+ * @throws {ProjectValidationError} If the updated project fails schema validation.
  * @throws {ProjectValidationError} If the updated project fails schema validation
  *   (e.g. candidates reference removed query IDs).
  * @throws Whatever repository.load() or repository.save() throws (not swallowed).
@@ -156,23 +156,11 @@ export async function updateSceneQueries(
   // 5. Replace queries (preserve candidates and lastSearchedAt)
   scene.search.queries = queries;
 
-  // 6. Business rule: stock_asset requires at least one enabled query
-  //    Checked before schema validation to give a clear, specific error.
-  if (scene.visualPlan.decision === "stock_asset") {
-    const hasEnabledQuery = scene.search.queries.some((q) => q.enabled);
-    if (!hasEnabledQuery) {
-      throw new ProjectConflictError(
-        "stock_asset scene requires at least one enabled search query",
-        "该场景决定为 stock_asset，至少需要一个启用的搜索查询",
-      );
-    }
-  }
-
-  // 7. Update project.updatedAt
+  // 6. Update project.updatedAt
   const now = deps.now?.() ?? new Date();
   updated.project.updatedAt = now.toISOString();
 
-  // 8. Re-validate the full project with the top-level schema
+  // 7. Re-validate the full project with the top-level schema
   //    This catches cases like candidates referencing removed query IDs.
   let validated: SpeechToSceneProject;
   try {
@@ -190,7 +178,7 @@ export async function updateSceneQueries(
     throw error;
   }
 
-  // 9. Save through repository — exactly one save call
+  // 8. Save through repository — exactly one save call
   await deps.repository.save(projectRoot, validated);
 
   return validated;

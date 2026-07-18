@@ -6,7 +6,6 @@ import type { ReviewServerDependencies } from "../../src/review/review-types.js"
 function fakeDeps(): ReviewServerDependencies {
   const base: Record<string, unknown> = {
     repository: { load: () => ({}), save: () => {}, exists: () => true },
-    assetWriter: { writeAsset: () => ({ relativePath: "x" }) },
     getReviewProject: () => ({ project: { id: "p", scenes: [] } }),
     updateScene: () => ({}),
     updateSceneQueries: () => ({}),
@@ -19,9 +18,6 @@ function fakeDeps(): ReviewServerDependencies {
       cacheMisses: 0,
       warnings: [],
     }),
-    selectCandidate: () => ({}),
-    skipScene: () => ({}),
-    attachLocalAsset: () => ({}),
     getSettings: () => ({
       plannerProvider: "fixture",
       hasDeepseekKey: false,

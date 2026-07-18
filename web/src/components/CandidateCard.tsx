@@ -1,12 +1,21 @@
-import { ImageIcon, Video, ExternalLink } from "lucide-react";
+import { ImageIcon, Video, ExternalLink, Link2 } from "lucide-react";
 
-import type { ReviewAssetCandidateView } from "../types.js";
+import type {
+  ReviewAssetCandidateView,
+  ReviewAssetCandidateAssetView,
+  ReviewAssetCandidateLinkView,
+} from "../types.js";
 
 interface CandidateCardProps {
   candidate: ReviewAssetCandidateView;
-  isSelected: boolean;
-  onSelect: () => void;
 }
+
+const PLATFORM_LABELS: Record<ReviewAssetCandidateLinkView["platform"], string> = {
+  xiaohongshu: "小红书",
+  douyin: "抖音",
+  bilibili: "哔哩哔哩",
+  youtube: "YouTube",
+};
 
 function rightsBadge(label: string, value: string): { text: string; cls: string } | null {
   const v = value.toLowerCase();
@@ -22,11 +31,7 @@ function rightsBadge(label: string, value: string): { text: string; cls: string 
   return null;
 }
 
-export function CandidateCard({
-  candidate,
-  isSelected,
-  onSelect,
-}: CandidateCardProps): React.ReactElement {
+function AssetCandidateCard({ candidate }: { candidate: ReviewAssetCandidateAssetView }): React.ReactElement {
   const rights = candidate.rights;
   const badges: { text: string; cls: string }[] = [];
 
@@ -43,18 +48,7 @@ export function CandidateCard({
   if (derivatives) badges.push(derivatives);
 
   return (
-    <article
-      className={`candidate ${isSelected ? "selected" : ""}`}
-      onClick={onSelect}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-    >
+    <article className="candidate">
       <div className="thumb">
         {candidate.thumbnailUrl ? (
           <img
@@ -78,7 +72,6 @@ export function CandidateCard({
             {candidate.width}×{candidate.height}
             {candidate.durationSeconds ? ` · ${candidate.durationSeconds}s` : ""}
           </strong>
-          {isSelected && <span className="tag blue">已选择</span>}
         </div>
         <p>
           {candidate.orientation} · 排名 #{candidate.rank}
@@ -90,7 +83,6 @@ export function CandidateCard({
             href={candidate.sourcePageUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
           >
             <ExternalLink size={12} />
             原始页面
@@ -107,4 +99,43 @@ export function CandidateCard({
       </div>
     </article>
   );
+}
+
+function LinkCandidateCard({ candidate }: { candidate: ReviewAssetCandidateLinkView }): React.ReactElement {
+  const platformLabel = PLATFORM_LABELS[candidate.platform] ?? candidate.platform;
+  return (
+    <article className="candidate link-card">
+      <div className="thumb thumb-link">
+        <Link2 size={32} />
+        <span className="media-type">{platformLabel}</span>
+      </div>
+      <div className="candidate-body">
+        <div className="candidate-title">
+          <strong>{platformLabel} 搜索</strong>
+        </div>
+        <p>关键词：{candidate.keyword}</p>
+        <div className="candidate-creator">
+          <a
+            href={candidate.searchUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ExternalLink size={12} />
+            在 {platformLabel} 中搜索
+          </a>
+        </div>
+        <div className="rights">
+          <span className="tag">平台链接</span>
+          <span className="tag">需手动筛选</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export function CandidateCard({ candidate }: CandidateCardProps): React.ReactElement {
+  if (candidate.kind === "asset") {
+    return <AssetCandidateCard candidate={candidate} />;
+  }
+  return <LinkCandidateCard candidate={candidate} />;
 }
