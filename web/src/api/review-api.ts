@@ -313,6 +313,21 @@ export class ReviewApiClient {
     return this.jsonMutation(`/api/scenes/${encodeURIComponent(sceneId)}/search`, "POST", body);
   }
 
+  /**
+   * POST /api/scenes/:sceneId/generate
+   *
+   * Generates an AI image for a scene using a text-to-image model.
+   * Returns the fresh UI-safe project view after generation completes.
+   */
+  async generateSceneImage(
+    sceneId: string,
+    input: { prompt: string; aspectRatio?: "9:16" | "16:9" | "1:1" },
+  ): Promise<ReviewProjectView> {
+    const body: Record<string, unknown> = { prompt: input.prompt };
+    if (input.aspectRatio !== undefined) body.aspectRatio = input.aspectRatio;
+    return this.jsonMutation(`/api/scenes/${encodeURIComponent(sceneId)}/generate`, "POST", body);
+  }
+
   // ---- F1: one-click project lifecycle + settings ----
 
   /**

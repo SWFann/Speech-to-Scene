@@ -161,8 +161,10 @@ export const SceneSearchSchema = z
     // Dedup keys must be unique within this scene, per kind:
     // - asset: [provider.id, mediaType, providerAssetId]
     // - link: [platform, searchUrl]
+    // - generated: [provider.id, model, prompt]
     const seenAssetKeys = new Set<string>();
     const seenLinkKeys = new Set<string>();
+    const seenGeneratedKeys = new Set<string>();
     for (const candidate of search.candidates) {
       if (candidate.kind === "asset") {
         const key = `${candidate.provider.id}\t${candidate.mediaType}\t${candidate.providerAssetId}`;
@@ -174,7 +176,7 @@ export const SceneSearchSchema = z
           });
         }
         seenAssetKeys.add(key);
-      } else {
+      } else if (candidate.kind === "link") {
         const key = `${candidate.platform}\t${candidate.searchUrl}`;
         if (seenLinkKeys.has(key)) {
           ctx.addIssue({
@@ -184,6 +186,16 @@ export const SceneSearchSchema = z
           });
         }
         seenLinkKeys.add(key);
+      } else {
+        const key = `${candidate.provider.id}\t${candidate.model}\t${candidate.prompt}`;
+        if (seenGeneratedKeys.has(key)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["candidates"],
+            message: "Scene 内 [provider.id, model, prompt] 必须唯一",
+          });
+        }
+        seenGeneratedKeys.add(key);
       }
     }
 

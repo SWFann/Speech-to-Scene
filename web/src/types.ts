@@ -82,11 +82,31 @@ export interface ReviewAssetCandidateLinkView {
 }
 
 /**
+ * Generated-kind candidate (an AI-generated image).
+ */
+export interface ReviewAssetCandidateGeneratedView {
+  readonly kind: "generated";
+  readonly id: string;
+  readonly provider: ReviewProviderSnapshotView;
+  readonly prompt: string;
+  readonly imageUrl: string;
+  readonly thumbnailUrl: string;
+  readonly width: number;
+  readonly height: number;
+  readonly orientation: "portrait" | "landscape" | "square";
+  readonly model: string;
+  readonly generatedAt: string;
+  readonly matchedQueryId: string;
+  readonly rank: number;
+}
+
+/**
  * Asset candidate (discriminated union on `kind`).
  */
 export type ReviewAssetCandidateView =
   | ReviewAssetCandidateAssetView
-  | ReviewAssetCandidateLinkView;
+  | ReviewAssetCandidateLinkView
+  | ReviewAssetCandidateGeneratedView;
 
 export interface ReviewSearchQueryView {
   readonly id: string;
@@ -223,6 +243,7 @@ export interface SettingsView {
   readonly deepseekModel: string;
   readonly stepBaseUrl: string;
   readonly stepModel: string;
+  readonly stepImageModel: string;
   readonly pexelsBaseUrl: string;
   readonly pexelsVideoBaseUrl: string;
 }

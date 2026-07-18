@@ -126,6 +126,7 @@ const SaveSettingsBodySchema = z.strictObject({
   stepApiKey: z.string().min(1).optional(),
   stepBaseUrl: z.string().url().optional(),
   stepModel: z.string().min(1).optional(),
+  stepImageModel: z.string().min(1).optional(),
   pexelsApiKey: z.string().min(1).optional(),
   pexelsBaseUrl: z.string().url().optional(),
   pexelsVideoBaseUrl: z.string().url().optional(),
@@ -159,6 +160,12 @@ const SearchProjectBodySchema = z.strictObject({
   providers: z.array(z.enum(KNOWN_SEARCH_PROVIDERS)).optional(),
   refresh: z.boolean().optional().default(false),
   limit: z.number().int().min(1).max(50).optional().default(12),
+});
+
+/** Body schema for POST /api/scenes/:sceneId/generate (Phase 2: AI image generation). */
+const GenerateImageBodySchema = z.strictObject({
+  prompt: z.string().min(1, "prompt 不能为空"),
+  aspectRatio: z.enum(["9:16", "16:9", "1:1"]).optional().default("9:16"),
 });
 
 export function createRoutes(config: {
@@ -196,6 +203,7 @@ export function createRoutes(config: {
       createProjectFromContent,
       planProject,
       searchProjectAssets,
+      generateSceneImage,
     } = config.deps;
 
     // Settings routes: only register when getSettings/saveSettings are wired (E1)
@@ -561,6 +569,64 @@ export function createRoutes(config: {
         }
       },
     });
+
+    // POST /api/scenes/:sceneId/generate (Phase 2: AI image generation)
+    //
+    // Generates an AI image for a scene using a text-to-image model and
+    // appends it as a `kind: "generated"` candidate.
+    if (generateSceneImage) {
+      routes.push({
+        path: "/api/scenes/:sceneId/generate",
+        methods: ["POST"],
+        handler: async (req, res, params) => {
+          const sceneId = params.pathParams["sceneId"];
+
+          // Validate sceneId from path
+          const validSceneId = validateSceneId(sceneId ?? "");
+          if (!validSceneId) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+            return;
+          }
+
+          // Read and parse JSON body
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+
+          // Strict Zod validation: { prompt, aspectRatio? } is accepted.
+          const bodyParse = GenerateImageBodySchema.safeParse(bodyResult.data);
+          if (!bodyParse.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
+            return;
+          }
+
+          // Build the use case input.
+          const useCaseInput = {
+            projectRoot: config.projectRoot,
+            sceneId: validSceneId,
+            prompt: bodyParse.data.prompt,
+            aspectRatio: bodyParse.data.aspectRatio,
+          };
+
+          try {
+            await generateSceneImage(useCaseInput);
+            // Success: return fresh UI-safe view
+            const project = await getReviewProject(config.projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
   }
 
   return routes;

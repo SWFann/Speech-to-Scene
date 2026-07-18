@@ -149,6 +149,24 @@ export function App(): React.ReactElement {
     }
   }, [client, activeSceneId, syncFromProject]);
 
+  // --- Mutation: generate AI image for a scene ---
+  const handleGenerateImage = useCallback(
+    async (prompt: string) => {
+      if (!client || !activeSceneId) return;
+      setActionError(null);
+      setBusyAction("generate");
+      try {
+        const project = await client.generateSceneImage(activeSceneId, { prompt });
+        syncFromProject(project);
+      } catch (err) {
+        setActionError(toActionError(err));
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [client, activeSceneId, syncFromProject],
+  );
+
   // --- F4: one-click create → plan → search ---
   const handleCreate = useCallback(
     async (input: { content: string; fileName?: string; title?: string }) => {
@@ -284,6 +302,7 @@ export function App(): React.ReactElement {
           <SceneDetail
             scene={activeScene}
             onSearchScene={() => void handleSearchScene()}
+            onGenerateImage={(prompt) => void handleGenerateImage(prompt)}
             busyAction={busyAction}
             actionError={actionError}
             onDismissError={handleDismissError}

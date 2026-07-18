@@ -93,6 +93,8 @@ export interface ReviewServerDependencies {
   readonly planProject?: (input: unknown) => Promise<PlanProjectResult>;
   /** Application: search all project assets (whole-project search). Wired in E1. */
   readonly searchProjectAssets?: (input: unknown) => Promise<SearchProjectAssetsResult>;
+  /** Application: generate AI image for a scene. Wired in Phase 2. */
+  readonly generateSceneImage?: (input: unknown) => Promise<SpeechToSceneProject>;
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ const SAMPLE_VIEW: SettingsView = {
   deepseekModel: "",
   stepBaseUrl: "",
   stepModel: "",
+  stepImageModel: "",
   pexelsBaseUrl: "",
   pexelsVideoBaseUrl: "",
 };

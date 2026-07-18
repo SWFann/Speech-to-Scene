@@ -18,6 +18,7 @@
 import { Command } from "commander";
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 
 import { type CommandContext } from "../command-context.js";
 import { AppError } from "../../shared/errors.js";
@@ -28,6 +29,7 @@ import type { SearchProjectAssetsResult } from "../../application/search-project
 import { searchProjectAssets as searchProjectAssetsUseCase } from "../../application/search-project-assets.js";
 import { createProjectFromContent as createProjectFromContentUseCase } from "../../application/create-project-from-content.js";
 import { planProject as planProjectUseCase } from "../../application/plan-script.js";
+import { generateSceneImage as generateSceneImageUseCase } from "../../application/generate-scene-image.js";
 import type { Settings } from "../../application/ports/settings-store.js";
 import { FsSettingsStore } from "../../infrastructure/settings-store.js";
 import { DefaultLinkSuggestionGenerator } from "../../infrastructure/link-suggestion-generator.js";
@@ -35,6 +37,7 @@ import {
   createSearchProvider,
   getSearchCacheDir,
   createPlannerProvider,
+  createImageGenerator,
   assetProviderEnvFromSettings,
   resolveConfiguredProviders,
 } from "../provider-factory.js";
@@ -209,6 +212,26 @@ export function createReviewCommand(ctx: CommandContext): Command {
                 now: () => new Date(),
               },
             );
+          },
+
+          // Phase 2: generate AI image for a scene
+          generateSceneImage: async (input: unknown) => {
+            const genInput = input as {
+              projectRoot: string;
+              sceneId: string;
+              prompt: string;
+              aspectRatio: "9:16" | "16:9" | "1:1";
+            };
+            const settings = await settingsStore.load();
+            // Prefer stepfun if key is configured, else fixture
+            const generatorName = settings.stepApiKey ? "stepfun" : "fixture";
+            const imageGenerator = await createImageGenerator(generatorName, settings);
+            return generateSceneImageUseCase(genInput, {
+              repository: ctx.repository,
+              imageGenerator,
+              generateId: () => `gen-${crypto.randomUUID()}`,
+              now: () => new Date(),
+            });
           },
         };
         const staticRoot = resolveReviewStaticRoot({
