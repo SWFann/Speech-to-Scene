@@ -60,7 +60,7 @@ describe("StepFunImageGenerator", () => {
     client.setResponse(
       okResponse({
         data: [{ url: "https://example.com/generated.png" }],
-        model: "step-1x-medium",
+        model: "step-image-edit-2",
       }),
     );
 
@@ -78,7 +78,7 @@ describe("StepFunImageGenerator", () => {
     expect(result.thumbnailUrl).toBe("https://example.com/generated.png");
     expect(result.width).toBe(1024);
     expect(result.height).toBe(1792);
-    expect(result.model).toBe("step-1x-medium");
+    expect(result.model).toBe("step-image-edit-2");
   });
 
   it("3. maps aspect ratio to correct size string", async () => {
@@ -121,7 +121,7 @@ describe("StepFunImageGenerator", () => {
     });
 
     await generator.generate({ prompt: "test", aspectRatio: "1:1" });
-    expect(client.recordedRequests[0]!.body).toMatchObject({ model: "step-1x-medium" });
+    expect(client.recordedRequests[0]!.body).toMatchObject({ model: "step-image-edit-2" });
   });
 
   it("5. uses provided model when specified", async () => {

@@ -213,7 +213,7 @@ export class FixtureImageGenerator implements ImageGenerator {
 ## 7. Settings 扩展
 
 `Settings` / `SettingsView` / `SaveSettingsBodySchema` 新增：
-- `stepImageModel?: string`（默认 `"step-1x-medium"`）
+- `stepImageModel?: string`（默认 `"step-image-edit-2"`）
 
 `createImageGenerator` 工厂函数：
 - `fixture` → FixtureImageGenerator（无 key）

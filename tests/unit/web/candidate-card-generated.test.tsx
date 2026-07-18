@@ -29,7 +29,7 @@ function makeGeneratedCandidate(
     width: 1024,
     height: 1792,
     orientation: "portrait",
-    model: "step-1x-medium",
+    model: "step-image-edit-2",
     generatedAt: "2026-07-18T10:00:00.000Z",
     matchedQueryId: "query-001",
     rank: 1,
@@ -60,7 +60,7 @@ describe("CandidateCard — generated kind", () => {
   it("3. renders model name", () => {
     const candidate = makeGeneratedCandidate();
     render(<CandidateCard candidate={candidate} />);
-    expect(screen.getByText(/step-1x-medium/)).toBeDefined();
+    expect(screen.getByText(/step-image-edit-2/)).toBeDefined();
   });
 
   it("4. renders prompt (truncated if > 60 chars)", () => {

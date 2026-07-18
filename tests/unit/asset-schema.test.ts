@@ -372,7 +372,7 @@ describe("AssetCandidateSchema", () => {
     width: 1024,
     height: 1792,
     orientation: "portrait" as const,
-    model: "step-1x-medium",
+    model: "step-image-edit-2",
     generatedAt: "2026-07-18T10:00:00Z",
     matchedQueryId: "query-001",
     rank: 1,

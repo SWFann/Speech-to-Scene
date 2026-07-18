@@ -95,13 +95,13 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
             <label>StepFun 图片生成模型</label>
             <input
               type="text"
-              placeholder={view?.stepImageModel || "step-1x-medium"}
+              placeholder={view?.stepImageModel || "step-image-edit-2"}
               value={stepImageModel}
               onChange={(e) => setStepImageModel(e.target.value)}
               disabled={saving}
             />
             <p className="settings-hint">
-              复用 StepFun API Key。留空使用默认模型 step-1x-medium。
+              复用 StepFun API Key。留空使用默认模型 step-image-edit-2。可用模型：step-image-edit-2、search-image。
             </p>
 
             <h3 className="settings-section-title">图库 API Key</h3>

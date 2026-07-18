@@ -281,7 +281,7 @@ export async function createImageGenerator(
           "在设置页配置 StepFun API Key",
         );
       }
-      const model = settings.stepImageModel ?? "step-1x-medium";
+      const model = settings.stepImageModel ?? "step-image-edit-2";
       const baseUrl = settings.stepBaseUrl ?? env.stepBaseUrl;
       const { StepFunImageGenerator } = await import(
         "../providers/stepfun/stepfun-image-generator.js"

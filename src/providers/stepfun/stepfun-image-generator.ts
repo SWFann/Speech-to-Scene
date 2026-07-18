@@ -29,7 +29,7 @@ import { InvalidArgumentError } from "../../shared/errors.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_STEPFUN_IMAGE_MODEL = "step-1x-medium";
+export const DEFAULT_STEPFUN_IMAGE_MODEL = "step-image-edit-2";
 export const DEFAULT_STEPFUN_IMAGE_BASE_URL = "https://api.stepfun.com/v1";
 export const DEFAULT_STEPFUN_IMAGE_TIMEOUT_MS = 120_000;
 
