@@ -15,6 +15,7 @@ import type { SearchProvider } from "../application/search-project-assets.js";
 import type { AssetProviderEnvConfig } from "../infrastructure/env.js";
 import type { PexelsAssetProviderOptions } from "../providers/pexels/pexels-asset-provider.js";
 import type { ScriptPlanner } from "../application/ports/script-planner.js";
+import type { ImageGenerator } from "../application/ports/image-generator.js";
 import type { Settings } from "../application/ports/settings-store.js";
 import { readPlannerEnv, readAssetProviderEnv } from "../infrastructure/env.js";
 import { ProjectNotPlannedError, InvalidArgumentError } from "../shared/errors.js";
@@ -248,4 +249,53 @@ export function resolveConfiguredProviders(
     return providers.filter((p) => usableSet.has(p));
   }
   return usable;
+}
+
+// ---------------------------------------------------------------------------
+// Image generator factory (Phase 2: AI image generation)
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates an image generator by name, with settings.json taking priority over
+ * .env for API keys. Used by the Review Server's generateSceneImage endpoint.
+ *
+ * @param name - Image generator name: "fixture" or "stepfun".
+ * @param settings - Loaded settings (settings.json). Keys take priority over .env.
+ */
+export async function createImageGenerator(
+  name: string,
+  settings: Settings,
+): Promise<ImageGenerator> {
+  switch (name) {
+    case "fixture": {
+      const { FixtureImageGenerator } =
+        await import("../providers/fixture/fixture-image-generator.js");
+      return new FixtureImageGenerator();
+    }
+    case "stepfun": {
+      const env = readPlannerEnv();
+      const apiKey = settings.stepApiKey ?? env.stepApiKey;
+      if (!apiKey) {
+        throw new InvalidArgumentError(
+          "StepFun API key is required",
+          "在设置页配置 StepFun API Key",
+        );
+      }
+      const model = settings.stepImageModel ?? "step-1x-medium";
+      const baseUrl = settings.stepBaseUrl ?? env.stepBaseUrl;
+      const { StepFunImageGenerator } = await import(
+        "../providers/stepfun/stepfun-image-generator.js"
+      );
+      return new StepFunImageGenerator({
+        apiKey,
+        model,
+        ...(baseUrl ? { baseUrl } : {}),
+      });
+    }
+    default:
+      throw new InvalidArgumentError(
+        `Unknown image generator: ${name}`,
+        `不支持的图片生成器：${name}，可选 fixture/stepfun`,
+      );
+  }
 }

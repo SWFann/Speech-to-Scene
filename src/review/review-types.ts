@@ -4,6 +4,9 @@
  * This module contains types specific to the local review server.
  * The server is a minimal local HTTP API for reviewing and editing
  * a Speech-to-Scene project.
+ *
+ * Phase 3: session token removed (loopback + Host + Origin is sufficient).
+ * `workspaceRoot` added for multi-project support.
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -16,6 +19,9 @@ import type { SpeechToSceneProject } from "../domain/project-schema.js";
 import type { SettingsView } from "../application/ports/settings-store.js";
 import type { CreateProjectResult } from "../application/create-project.js";
 import type { PlanProjectResult } from "../application/plan-script.js";
+import type { ListProjectsResult } from "../application/list-projects.js";
+import type { SwitchProjectResult } from "../application/switch-project.js";
+import type { DeleteProjectResult } from "../application/delete-project.js";
 
 // ---------------------------------------------------------------------------
 // Server configuration
@@ -23,16 +29,20 @@ import type { PlanProjectResult } from "../application/plan-script.js";
 
 /**
  * Configuration for the review server.
+ *
+ * Phase 3: `workspaceRoot` added for multi-project support. `projectRoot`
+ * is the current active project (mutable at runtime via /api/project/switch).
+ * Session token removed — loopback + Host + Origin is sufficient.
  */
 export interface ReviewServerConfig {
-  /** Absolute path to the project root directory. */
+  /** Absolute path to the workspace root directory (parent of all projects). */
+  readonly workspaceRoot: string;
+  /** Absolute path to the current active project root directory. */
   readonly projectRoot: string;
   /** Host to bind to. Must be a loopback address. */
   readonly host: string;
   /** Port to listen on. */
   readonly port: number;
-  /** Session token for mutating requests. */
-  readonly token: string;
   /** Server version identifier. */
   readonly version: string;
   /**
@@ -57,6 +67,9 @@ export interface ReviewServerConfig {
  * The HTTP layer never instantiates JsonProjectRepository or any other
  * infrastructure provider directly. All application use cases are injected
  * as functions.
+ *
+ * Phase 3: added listProjects, switchProject, deleteProject for multi-project
+ * workspace support.
  */
 export interface ReviewServerDependencies {
   /** Project repository (used for loading/saving projects). */
@@ -93,6 +106,15 @@ export interface ReviewServerDependencies {
   readonly planProject?: (input: unknown) => Promise<PlanProjectResult>;
   /** Application: search all project assets (whole-project search). Wired in E1. */
   readonly searchProjectAssets?: (input: unknown) => Promise<SearchProjectAssetsResult>;
+  /** Application: generate AI image for a scene. Wired in Phase 2. */
+  readonly generateSceneImage?: (input: unknown) => Promise<SpeechToSceneProject>;
+
+  /** Phase 3: list all projects in the workspace. */
+  readonly listProjects?: (workspaceRoot: string) => Promise<ListProjectsResult>;
+  /** Phase 3: switch to a different project. */
+  readonly switchProject?: (input: unknown) => Promise<SwitchProjectResult>;
+  /** Phase 3: delete the current active project. */
+  readonly deleteProject?: (input: unknown) => Promise<DeleteProjectResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +131,8 @@ export interface JsonResponse {
   port?: number;
   version?: string;
   project?: unknown;
+  projects?: readonly unknown[];
+  activeProject?: string | null;
   error?: {
     code: string;
     message: string;
@@ -120,13 +144,13 @@ export interface JsonResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * Returned by `startReviewServer`. Provides lifecycle control and session info.
+ * Returned by `startReviewServer`. Provides lifecycle control.
+ *
+ * Phase 3: session token field removed.
  */
 export interface ReviewServerHandle {
   /** The bound port number. */
   readonly port: number;
-  /** The session token (auto-generated or user-provided). */
-  readonly token: string;
   /** Gracefully shuts down the server. */
   close(): Promise<void>;
 }
@@ -138,9 +162,7 @@ export interface ReviewServerHandle {
 /**
  * Response body for GET /api/health.
  *
- * NOTE: The session token is intentionally NOT included in the health response.
- * Tokens are provided to CLI users at startup and used via X-S2S-Session header
- * for mutating requests (M4-02+).
+ * Phase 3: token reference removed (no session token mechanism).
  */
 export interface HealthResponse {
   ok: true;

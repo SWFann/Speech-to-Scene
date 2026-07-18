@@ -158,44 +158,6 @@ describe("review-server", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Token handling
-  // ---------------------------------------------------------------------------
-
-  describe("token handling", () => {
-    it("generates a non-empty token when not specified", async () => {
-      const { handle } = await startTestServer();
-
-      expect(handle.token).toBeTruthy();
-      expect(typeof handle.token).toBe("string");
-      expect(handle.token.length).toBeGreaterThan(0);
-    });
-
-    it("returns the provided token when specified", async () => {
-      const expectedToken = "my-custom-token-123";
-      const { handle } = await startTestServer({ token: expectedToken });
-
-      expect(handle.token).toBe(expectedToken);
-    });
-
-    it("health response does not include token field", async () => {
-      const { url } = await startTestServer({ token: "secret-token" });
-
-      const { body } = await fetchJson(`${url}/api/health`);
-
-      expect((body as Record<string, unknown>).token).toBeUndefined();
-    });
-
-    it("generated token is a UUID format (36 chars with dashes)", async () => {
-      const { handle } = await startTestServer();
-
-      // randomUUID() returns a UUID v4 string: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-      expect(handle.token).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-      );
-    });
-  });
-
-  // ---------------------------------------------------------------------------
   // Path resolution
   // ---------------------------------------------------------------------------
 
@@ -301,7 +263,6 @@ describe("review-server", () => {
           projectRoot: "/tmp/test",
           host: "0.0.0.0",
           port: 0,
-          token: "test",
           version: "test",
         }),
       ).rejects.toThrow("Host must be a loopback address");

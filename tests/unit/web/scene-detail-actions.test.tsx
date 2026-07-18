@@ -12,6 +12,7 @@ const noop = (): void => {};
 interface SceneDetailTestProps {
   scene: ReviewSceneView;
   onSearchScene: () => void;
+  onGenerateImage: (prompt: string) => void;
   busyAction: BusyAction;
   actionError: ActionErrorInfo | null;
   onDismissError: () => void;
@@ -23,6 +24,7 @@ function makeProps(overrides: Partial<SceneDetailTestProps> = {}): SceneDetailTe
   return {
     scene,
     onSearchScene: overrides.onSearchScene ?? noop,
+    onGenerateImage: overrides.onGenerateImage ?? noop,
     busyAction: overrides.busyAction ?? null,
     actionError: overrides.actionError ?? null,
     onDismissError: overrides.onDismissError ?? noop,
@@ -116,5 +118,73 @@ describe("SceneDetail — action buttons", () => {
     const scene = project.scenes[1]!; // scene-002 has no candidates
     render(<SceneDetail {...makeProps({ scene })} />);
     expect(screen.getByText("暂无候选")).toBeDefined();
+  });
+
+  // ----- Phase 2: AI image generation button -----
+
+  it("13. generate image button is present", () => {
+    render(<SceneDetail {...makeProps()} />);
+    expect(screen.getByTestId("generate-image-btn")).toBeDefined();
+  });
+
+  it("14. generate button is enabled when busyAction is null", () => {
+    render(<SceneDetail {...makeProps({ busyAction: null })} />);
+    expect(screen.getByTestId<HTMLButtonElement>("generate-image-btn").disabled).toBe(false);
+  });
+
+  it("15. generate button is disabled when busyAction='generate'", () => {
+    render(<SceneDetail {...makeProps({ busyAction: "generate" })} />);
+    expect(screen.getByTestId<HTMLButtonElement>("generate-image-btn").disabled).toBe(true);
+  });
+
+  it("16. generate button shows loading text when busyAction='generate'", () => {
+    render(<SceneDetail {...makeProps({ busyAction: "generate" })} />);
+    expect(screen.getByText("生成中…")).toBeDefined();
+  });
+
+  it("17. generate button shows default text when not busy", () => {
+    render(<SceneDetail {...makeProps({ busyAction: null })} />);
+    expect(screen.getByText("生成图片")).toBeDefined();
+  });
+
+  it("18. clicking generate button opens prompt editor", () => {
+    render(<SceneDetail {...makeProps()} />);
+    const btn = screen.getByTestId("generate-image-btn");
+    fireEvent.click(btn);
+    expect(screen.getByTestId("prompt-editor")).toBeDefined();
+  });
+
+  it("19. prompt editor has textarea with pre-filled prompt", () => {
+    render(<SceneDetail {...makeProps()} />);
+    fireEvent.click(screen.getByTestId("generate-image-btn"));
+    const textarea = screen.getByTestId<HTMLTextAreaElement>("prompt-textarea");
+    // The default prompt should be built from scene summary + keywords
+    expect(textarea.value).toContain("场景一摘要");
+  });
+
+  it("20. confirming prompt calls onGenerateImage", () => {
+    const handler = vi.fn();
+    render(<SceneDetail {...makeProps({ onGenerateImage: handler })} />);
+    fireEvent.click(screen.getByTestId("generate-image-btn"));
+    // Click the confirm button in the prompt editor
+    const confirmBtn = screen.getByText("确认生成");
+    fireEvent.click(confirmBtn);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(expect.stringContaining("场景一摘要"));
+  });
+
+  it("21. closing prompt editor does not call onGenerateImage", () => {
+    const handler = vi.fn();
+    render(<SceneDetail {...makeProps({ onGenerateImage: handler })} />);
+    fireEvent.click(screen.getByTestId("generate-image-btn"));
+    // Click the close button (aria-label="关闭")
+    const closeBtn = screen.getByLabelText("关闭");
+    fireEvent.click(closeBtn);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("22. generate button is disabled when busyAction='search'", () => {
+    render(<SceneDetail {...makeProps({ busyAction: "search" })} />);
+    expect(screen.getByTestId<HTMLButtonElement>("generate-image-btn").disabled).toBe(true);
   });
 });

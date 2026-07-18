@@ -2,10 +2,9 @@
  * Integration tests for GET /api/project API endpoint.
  *
  * Tests verify:
- * - Correct token returns 200 with project data
- * - Missing token returns 401 session_required
- * - Wrong token returns 403 session_rejected
- * - Evil Host returns 403 even with correct token
+ * - GET /api/project returns 200 with project data
+ * - GET /api/project succeeds without session token (Phase 3)
+ * - Evil Host returns 403
  * - Health still returns 200 without token
  * - Project response has no absolute paths
  * - Project response has no session token
@@ -255,11 +254,10 @@ async function startTestServer(
 // ---------------------------------------------------------------------------
 
 describe("GET /api/project API", () => {
-  it("correct token returns 200 with project data", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
+  it("returns 200 with project data", async () => {
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     expect(status).toBe(200);
@@ -270,32 +268,20 @@ describe("GET /api/project API", () => {
     );
   }, 10000);
 
-  it("missing token returns 401 session_required", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
+  it("GET /api/project succeeds without session token (Phase 3)", async () => {
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
     });
 
-    expect(status).toBe(401);
-    expect((body as { error: { code: string } }).error.code).toBe("session_required");
+    expect(status).toBe(200);
+    expect((body as { ok: boolean }).ok).toBe(true);
   }, 10000);
 
-  it("wrong token returns 403 session_rejected", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
-    const { status, body } = await httpRequest(port, "/api/project", {
-      host: `127.0.0.1:${port}`,
-      token: "wrong-token",
-    });
-
-    expect(status).toBe(403);
-    expect((body as { error: { code: string } }).error.code).toBe("session_rejected");
-  }, 10000);
-
-  it("evil Host returns 403 even with correct token", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
+  it("evil Host returns 403", async () => {
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/project", {
       host: "evil.example:3210",
-      token: "test-token",
     });
 
     expect(status).toBe(403);
@@ -303,7 +289,7 @@ describe("GET /api/project API", () => {
   }, 10000);
 
   it("health returns 200 without token", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
+    const { port } = await startTestServer();
     const { status } = await httpRequest(port, "/api/health", {
       host: `127.0.0.1:${port}`,
     });
@@ -313,12 +299,10 @@ describe("GET /api/project API", () => {
 
   it("project response does not contain absolute projectRoot", async () => {
     const { port } = await startTestServer({
-      token: "test-token",
       projectRoot: "/secret/path/project",
     });
     const { body } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     const bodyStr = JSON.stringify(body);
@@ -326,21 +310,19 @@ describe("GET /api/project API", () => {
     expect(bodyStr).not.toContain("/secret");
   }, 10000);
 
-  it("project response does not contain session token", async () => {
-    const { port } = await startTestServer({ token: "secret-token-xyz" });
+  it("project response does not leak sensitive data", async () => {
+    const { port } = await startTestServer();
     const { body } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "secret-token-xyz",
     });
 
-    const bodyStr = JSON.stringify(body);
-    expect(bodyStr).not.toContain("secret-token-xyz");
+    // Phase 3: no session token mechanism — response must not carry one
+    expect((body as Record<string, unknown>).token).toBeUndefined();
   }, 10000);
 
   it("projectRoot query param cannot change the project", async () => {
     const repo = new InMemoryRepository();
     const { port } = await startTestServer({
-      token: "test-token",
       projectRoot: "/test/original",
       repo,
     });
@@ -349,7 +331,6 @@ describe("GET /api/project API", () => {
 
     const { body } = await httpRequest(port, "/api/project?projectRoot=/test/other", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     // Should still load from /test/original
@@ -360,10 +341,9 @@ describe("GET /api/project API", () => {
 
   it("repository load called once", async () => {
     const repo = new InMemoryRepository();
-    const { port } = await startTestServer({ token: "test-token", repo });
+    const { port } = await startTestServer({ repo });
     await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     expect(repo.loadCount).toBe(1);
@@ -371,10 +351,9 @@ describe("GET /api/project API", () => {
 
   it("repository save never called", async () => {
     const repo = new InMemoryRepository();
-    const { port } = await startTestServer({ token: "test-token", repo });
+    const { port } = await startTestServer({ repo });
     await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     expect(repo.saveCount).toBe(0);
@@ -384,14 +363,12 @@ describe("GET /api/project API", () => {
     const repo = new InMemoryRepository();
     repo.shouldThrow = new Error("Internal filesystem error");
     const { port } = await startTestServer({
-      token: "test-token",
       projectRoot: "/test/error",
       repo,
     });
 
     const { status, body } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     expect(status).toBe(500);
@@ -401,10 +378,9 @@ describe("GET /api/project API", () => {
   }, 10000);
 
   it("all responses include security headers", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
+    const { port } = await startTestServer();
     const { headers } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     expect(headers["content-type"]).toBe("application/json; charset=utf-8");
@@ -416,11 +392,10 @@ describe("GET /api/project API", () => {
   }, 10000);
 
   it("POST /api/project returns 405 with Allow header", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
+    const { port } = await startTestServer();
     const { status, headers } = await httpRequest(port, "/api/project", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     expect(status).toBe(405);
@@ -428,10 +403,9 @@ describe("GET /api/project API", () => {
   }, 10000);
 
   it("project response contains scenes and derived status", async () => {
-    const { port } = await startTestServer({ token: "test-token" });
+    const { port } = await startTestServer();
     const { body } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "test-token",
     });
 
     const project = (body as { project: { scenes: unknown[]; status: string } }).project;

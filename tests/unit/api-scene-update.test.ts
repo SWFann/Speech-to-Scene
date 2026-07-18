@@ -6,8 +6,7 @@
  *  2. Correct token successfully sets reviewNote
  *  3. reviewNote null deletes note
  *  4. { visualPlan: {} } → 400 invalid_request
- *  5. Missing token → 401 session_required
- *  6. Wrong token → 403 session_rejected
+ *  5. PATCH succeeds without session token (Phase 3)
  *  7. Evil Host → 403 (before body parse)
  *  8. Bad Origin → 403 origin_rejected
  *  9. Malformed JSON → 400 invalid_json
@@ -280,12 +279,11 @@ async function startTestServer(
 // ---------------------------------------------------------------------------
 
 describe("PATCH /api/scenes/:sceneId", () => {
-  it("1. correct token successfully updates visualPlan", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+  it("1. successfully updates visualPlan", async () => {
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         visualPlan: { rationale: "Updated rationale" },
       }),
@@ -299,11 +297,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("2. reviewNote field is now rejected (unknown field) → 400 invalid_request", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ reviewNote: "A note from API" }),
     });
 
@@ -313,11 +310,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("3. visualPlan update with multiple fields succeeds", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         visualPlan: { rationale: "Updated rationale", decision: "title_card" },
       }),
@@ -331,11 +327,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("4. { visualPlan: {} } → 400 invalid_request", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ visualPlan: {} }),
     });
 
@@ -343,37 +338,23 @@ describe("PATCH /api/scenes/:sceneId", () => {
     expect((body as { error: { code: string } }).error.code).toBe("invalid_request");
   }, 10000);
 
-  it("5. missing token → 401 session_required", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+  it("5. PATCH succeeds without session token (Phase 3)", async () => {
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
       body: JSON.stringify({ visualPlan: { rationale: "x" } }),
     });
 
-    expect(status).toBe(401);
-    expect((body as { error: { code: string } }).error.code).toBe("session_required");
-  }, 10000);
-
-  it("6. wrong token → 403 session_rejected", async () => {
-    const { port } = await startTestServer({ token: "tok" });
-    const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
-      method: "PATCH",
-      host: `127.0.0.1:${port}`,
-      token: "wrong",
-      body: JSON.stringify({ visualPlan: { rationale: "x" } }),
-    });
-
-    expect(status).toBe(403);
-    expect((body as { error: { code: string } }).error.code).toBe("session_rejected");
+    expect(status).toBe(200);
+    expect((body as { ok: boolean }).ok).toBe(true);
   }, 10000);
 
   it("7. evil Host → 403 (before body parse)", async () => {
-    const { port, repo } = await startTestServer({ token: "tok" });
+    const { port, repo } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: "evil.example:3210",
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "x" } }),
     });
 
@@ -384,12 +365,11 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("8. bad Origin → 403 origin_rejected", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
       origin: "https://evil.example",
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "x" } }),
     });
 
@@ -398,11 +378,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("9. malformed JSON → 400 invalid_json", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: "{not valid json",
     });
 
@@ -411,11 +390,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("10. unknown field in body → 400 invalid_request", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "x" }, extraField: "bad" }),
     });
 
@@ -424,11 +402,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("11. scene not found → 404 not_found", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, body } = await httpRequest(port, "/api/scenes/non-existent", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "x" } }),
     });
 
@@ -439,7 +416,7 @@ describe("PATCH /api/scenes/:sceneId", () => {
   it("12. stock_asset without enabled query → PATCH succeeds (gating removed)", async () => {
     const repo = new InMemoryRepository();
     const projectRoot = "/test/conflict";
-    const { port } = await startTestServer({ token: "tok", projectRoot, repo });
+    const { port } = await startTestServer({ projectRoot, repo });
 
     // Overwrite the default project with one that has no enabled queries
     const project = makeTestProject();
@@ -449,7 +426,6 @@ describe("PATCH /api/scenes/:sceneId", () => {
     const { status } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "still stock" } }),
     });
 
@@ -457,32 +433,28 @@ describe("PATCH /api/scenes/:sceneId", () => {
     expect(status).toBe(200);
   }, 10000);
 
-  it("13. response does not leak projectRoot/token/stack", async () => {
+  it("13. response does not leak projectRoot/stack", async () => {
     const { port } = await startTestServer({
-      token: "super-secret-token",
       projectRoot: "/very/secret/path",
     });
     const { body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "super-secret-token",
       body: JSON.stringify({ visualPlan: { rationale: "x" } }),
     });
 
     const bodyStr = JSON.stringify(body);
     expect(bodyStr).not.toContain("/very/secret/path");
-    expect(bodyStr).not.toContain("super-secret-token");
     expect(bodyStr).not.toContain("stack");
   }, 10000);
 
   it("14. PATCH then GET /api/project shows the update", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
 
     // PATCH: update visualPlan
     await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({
         visualPlan: { decision: "title_card", rationale: "Changed via PATCH" },
       }),
@@ -491,7 +463,6 @@ describe("PATCH /api/scenes/:sceneId", () => {
     // GET: verify the update persisted
     const { status, body } = await httpRequest(port, "/api/project", {
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
 
     expect(status).toBe(200);
@@ -505,11 +476,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("405 Allow header for GET on PATCH-only route", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status, headers } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "GET",
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
 
     expect(status).toBe(405);
@@ -517,11 +487,10 @@ describe("PATCH /api/scenes/:sceneId", () => {
   }, 10000);
 
   it("rejects invalid sceneId with path traversal", async () => {
-    const { port } = await startTestServer({ token: "tok" });
+    const { port } = await startTestServer();
     const { status } = await httpRequest(port, "/api/scenes/..", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "x" } }),
     });
 

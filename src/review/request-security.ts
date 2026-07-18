@@ -1,8 +1,13 @@
 /**
  * Request security middleware composition.
  *
- * Composes Host validation, Origin validation, and Session token validation
- * into a two-phase per-request security check for the Review Server.
+ * Composes Host validation and Origin validation into a two-phase
+ * per-request security check for the Review Server.
+ *
+ * Phase 3: session token validation removed. The security model is now:
+ * - Loopback binding (127.0.0.1 only)
+ * - Host header validation (prevents DNS rebinding)
+ * - Origin header validation for mutating requests (prevents CSRF)
  *
  * Security flow for each request:
  *
@@ -13,7 +18,6 @@
  *   2. Validate method allowlist (route-specific, defense-in-depth)
  *   3. For mutating requests:
  *      a. Validate Origin header (if present)
- *      b. Validate session token (required)
  *
  * This split ensures that an attacker cannot probe which routes exist
  * by sending requests with an evil Host header — the Host Gate runs
@@ -28,14 +32,11 @@ import {
 } from "./security/response-headers.js";
 import { validateHostHeader, type HostValidationResult } from "./security/host-validation.js";
 import { validateOrigin, type OriginValidationResult } from "./security/origin-validation.js";
-import { validateSessionToken } from "./security/session-token.js";
 import { sendError } from "./json-response.js";
 import {
   MUTATING_METHODS,
   ERROR_HOST_REJECTED,
   ERROR_ORIGIN_REJECTED,
-  ERROR_SESSION_REQUIRED,
-  ERROR_SESSION_REJECTED,
   ERROR_METHOD_NOT_ALLOWED,
 } from "./http-errors.js";
 
@@ -45,11 +46,12 @@ import {
 
 /**
  * Configuration for the request security layer.
+ *
+ * Phase 3: `boundToken` removed — no session token mechanism.
  */
 export interface RequestSecurityConfig {
   readonly boundHost: string;
   readonly boundPort: number;
-  readonly boundToken: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,37 +123,6 @@ export function checkOrigin(
   return null;
 }
 
-/**
- * Validates the session token for mutating requests.
- */
-export function checkToken(
-  req: IncomingMessage,
-  config: RequestSecurityConfig,
-): SecurityCheckResult | null {
-  const result = validateSessionToken(req, config.boundToken);
-
-  if (!result.valid) {
-    if (result.reason === "session_required") {
-      return {
-        allowed: false,
-        statusCode: 401,
-        code: ERROR_SESSION_REQUIRED,
-        message: "Session token is required",
-        hint: "Provide X-S2S-Session header",
-      };
-    }
-    return {
-      allowed: false,
-      statusCode: 403,
-      code: ERROR_SESSION_REJECTED,
-      message: "Session token is invalid",
-      hint: "Restart the review server to get a new token",
-    };
-  }
-
-  return null;
-}
-
 // ---------------------------------------------------------------------------
 // Composed security gates
 // ---------------------------------------------------------------------------
@@ -212,7 +183,7 @@ export function checkHostGate(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: Post-routing Method/Origin/Token Gate
+// Phase 2: Post-routing Method/Origin Gate
 // ---------------------------------------------------------------------------
 
 /**
@@ -221,7 +192,9 @@ export function checkHostGate(
  * This is called AFTER a route has been matched. It performs:
  * 1. Method allowlist check (defense-in-depth; should already pass since
  *    the route matched on path+method).
- * 2. For mutating methods: Origin validation and session token validation.
+ * 2. For mutating methods: Origin validation.
+ *
+ * Phase 3: session token validation removed.
  *
  * @param req - The incoming HTTP request.
  * @param method - The HTTP method.
@@ -250,7 +223,7 @@ export function runPostRoutingGate(
     };
   }
 
-  // 2. For mutating methods, validate Origin and token
+  // 2. For mutating methods, validate Origin
   if (MUTATING_METHODS.has(method)) {
     const originResult = checkOrigin(req, config);
     if (originResult !== null) {
@@ -266,26 +239,6 @@ export function runPostRoutingGate(
               originResult.code,
               originResult.message,
               originResult.hint ?? undefined,
-            );
-          },
-        },
-      };
-    }
-
-    const tokenResult = checkToken(req, config);
-    if (tokenResult !== null) {
-      return {
-        passed: false,
-        rejection: {
-          statusCode: tokenResult.statusCode,
-          apply: (res: ServerResponse) => {
-            applySecurityHeaders(res);
-            sendError(
-              res,
-              tokenResult.statusCode,
-              tokenResult.code,
-              tokenResult.message,
-              tokenResult.hint ?? undefined,
             );
           },
         },

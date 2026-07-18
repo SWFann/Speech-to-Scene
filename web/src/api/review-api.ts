@@ -4,15 +4,11 @@
  * All requests go through the local HTTP API. The client never accesses
  * the filesystem directly.
  *
- * Token handling:
- * - The session token is read from the URL query (?token=...), localStorage,
- *   or a constructor parameter — never hardcoded.
- * - The token is sent via the X-S2S-Session header.
- * - The token is never logged or exposed in error messages.
- *
- * Phase 1 material-discovery redesign:
- * - selectCandidate / skipScene / uploadLocalAsset have been removed.
- * - searchScene / searchProject accept a `providers` array (multi-source).
+ * Phase 3:
+ * - Session token removed. Security relies on loopback + Host + Origin.
+ * - Added listProjects(), switchProject(), deleteProject() methods.
+ * - createProject() accepts optional projectName.
+ * - URL ?token= parameter is ignored (backward compat, no error).
  */
 
 import type {
@@ -22,6 +18,8 @@ import type {
   ReviewProjectView,
   SettingsView,
   SearchProviderName,
+  ProjectsApiResponse,
+  DeleteProjectApiResponse,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -31,8 +29,6 @@ import type {
 export interface ReviewApiConfig {
   /** Base URL of the local review server, e.g. http://127.0.0.1:3210 */
   baseUrl: string;
-  /** Session token for authenticated requests. */
-  token: string;
 }
 
 export class ReviewApiError extends Error {
@@ -48,55 +44,8 @@ export class ReviewApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Token resolution
+// Base URL resolution
 // ---------------------------------------------------------------------------
-
-/**
- * Resolve the session token from multiple sources (in priority order):
- * 1. URL query parameter ?token=...
- * 2. localStorage key "s2s:session-token"
- * 3. null if not found
- *
- * In production, the user typically copies the token from the CLI output.
- */
-export function resolveSessionToken(): string | null {
-  if (typeof window === "undefined") return null;
-
-  // 1. URL query
-  const params = new URLSearchParams(window.location.search);
-  const queryToken = params.get("token");
-  if (queryToken) {
-    // Persist for subsequent visits
-    try {
-      localStorage.setItem("s2s:session-token", queryToken);
-    } catch {
-      // localStorage might be unavailable (private mode)
-    }
-    return queryToken;
-  }
-
-  // 2. localStorage
-  try {
-    const stored = localStorage.getItem("s2s:session-token");
-    if (stored) return stored;
-  } catch {
-    // localStorage might be unavailable
-  }
-
-  return null;
-}
-
-/**
- * Persist a session token to localStorage.
- */
-export function saveSessionToken(token: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem("s2s:session-token", token);
-  } catch {
-    // Ignore storage errors
-  }
-}
 
 /**
  * Resolve the API base URL from the current browser location.
@@ -125,11 +74,9 @@ export function resolveBaseUrl(): string {
 
 export class ReviewApiClient {
   private readonly baseUrl: string;
-  private readonly token: string;
 
   constructor(config: ReviewApiConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
-    this.token = config.token;
   }
 
   private buildUrl(path: string): string {
@@ -138,7 +85,6 @@ export class ReviewApiClient {
 
   private getHeaders(): Record<string, string> {
     return {
-      "X-S2S-Session": this.token,
       Accept: "application/json",
     };
   }
@@ -178,13 +124,9 @@ export class ReviewApiClient {
           message = "请求无效";
           errorCode = "invalid_request";
           break;
-        case 401:
-          message = "需要提供 session token";
-          errorCode = "session_required";
-          break;
         case 403:
-          message = "session token 无效或来源被拒绝";
-          errorCode = "session_rejected";
+          message = "来源被拒绝（Host 或 Origin 校验失败）";
+          errorCode = "origin_rejected";
           break;
         case 404:
           message = "请求的资源不存在";
@@ -215,7 +157,6 @@ export class ReviewApiClient {
 
   /**
    * GET /api/health
-   * Does not require a token.
    */
   async getHealth(): Promise<HealthApiResponse> {
     let response: Response;
@@ -237,7 +178,6 @@ export class ReviewApiClient {
 
   /**
    * GET /api/project
-   * Requires a valid session token.
    */
   async getProject(): Promise<ReviewProjectView> {
     let response: Response;
@@ -259,6 +199,27 @@ export class ReviewApiClient {
     return result.project;
   }
 
+  /**
+   * GET /api/projects — list all projects in the workspace (Phase 3).
+   */
+  async listProjects(): Promise<ProjectsApiResponse> {
+    let response: Response;
+    try {
+      response = await fetch(this.buildUrl("/api/projects"), {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+    } catch {
+      throw new ReviewApiError(
+        "无法连接到本地 Review Server，请确认服务器已启动",
+        "network_error",
+        0,
+        "运行 pnpm start 启动服务器",
+      );
+    }
+    return this.handleResponse<ProjectsApiResponse>(response);
+  }
+
   // ---------------------------------------------------------------------
   // Mutation methods
   // ---------------------------------------------------------------------
@@ -266,11 +227,11 @@ export class ReviewApiClient {
   /**
    * Shared helper for JSON mutation requests.
    */
-  private async jsonMutation(
+  private async jsonMutation<T>(
     path: string,
-    method: "PUT" | "POST" | "PATCH",
+    method: "PUT" | "POST" | "PATCH" | "DELETE",
     body: unknown,
-  ): Promise<ReviewProjectView> {
+  ): Promise<T> {
     let response: Response;
     try {
       response = await fetch(this.buildUrl(path), {
@@ -290,15 +251,23 @@ export class ReviewApiClient {
       );
     }
 
-    const result = await this.handleResponse<ProjectApiResponse>(response);
+    return this.handleResponse<T>(response);
+  }
+
+  /**
+   * Shared helper for JSON mutation requests that return a project view.
+   */
+  private async projectMutation(
+    path: string,
+    method: "PUT" | "POST" | "PATCH",
+    body: unknown,
+  ): Promise<ReviewProjectView> {
+    const result = await this.jsonMutation<ProjectApiResponse>(path, method, body);
     return result.project;
   }
 
   /**
    * POST /api/scenes/:sceneId/search
-   *
-   * Triggers a multi-source asset search for exactly one scene.
-   * Returns the fresh UI-safe project view after search completes.
    */
   async searchScene(
     sceneId: string,
@@ -310,13 +279,26 @@ export class ReviewApiClient {
     }
     if (input.refresh !== undefined) body.refresh = input.refresh;
     if (input.limit !== undefined) body.limit = input.limit;
-    return this.jsonMutation(`/api/scenes/${encodeURIComponent(sceneId)}/search`, "POST", body);
+    return this.projectMutation(`/api/scenes/${encodeURIComponent(sceneId)}/search`, "POST", body);
+  }
+
+  /**
+   * POST /api/scenes/:sceneId/generate
+   */
+  async generateSceneImage(
+    sceneId: string,
+    input: { prompt: string; aspectRatio?: "9:16" | "16:9" | "1:1" },
+  ): Promise<ReviewProjectView> {
+    const body: Record<string, unknown> = { prompt: input.prompt };
+    if (input.aspectRatio !== undefined) body.aspectRatio = input.aspectRatio;
+    return this.projectMutation(`/api/scenes/${encodeURIComponent(sceneId)}/generate`, "POST", body);
   }
 
   // ---- F1: one-click project lifecycle + settings ----
 
   /**
    * POST /api/project/create — create project from uploaded text content.
+   * Phase 3: accepts optional projectName.
    */
   async createProject(input: {
     content: string;
@@ -328,6 +310,7 @@ export class ReviewApiClient {
     intendedUse?: "commercial_capable" | "noncommercial" | "editorial";
     willModify?: boolean;
     force?: boolean;
+    projectName?: string;
   }): Promise<ReviewProjectView> {
     const body: Record<string, unknown> = { content: input.content };
     if (input.fileName !== undefined) body.fileName = input.fileName;
@@ -338,7 +321,8 @@ export class ReviewApiClient {
     if (input.intendedUse !== undefined) body.intendedUse = input.intendedUse;
     if (input.willModify !== undefined) body.willModify = input.willModify;
     if (input.force !== undefined) body.force = input.force;
-    return this.jsonMutation("/api/project/create", "POST", body);
+    if (input.projectName !== undefined) body.projectName = input.projectName;
+    return this.projectMutation("/api/project/create", "POST", body);
   }
 
   /**
@@ -352,7 +336,7 @@ export class ReviewApiClient {
     const body: Record<string, unknown> = { provider: input.provider };
     if (input.maxScenes !== undefined) body.maxScenes = input.maxScenes;
     if (input.force !== undefined) body.force = input.force;
-    return this.jsonMutation("/api/project/plan", "POST", body);
+    return this.projectMutation("/api/project/plan", "POST", body);
   }
 
   /**
@@ -369,7 +353,21 @@ export class ReviewApiClient {
     }
     if (input.refresh !== undefined) body.refresh = input.refresh;
     if (input.limit !== undefined) body.limit = input.limit;
-    return this.jsonMutation("/api/project/search", "POST", body);
+    return this.projectMutation("/api/project/search", "POST", body);
+  }
+
+  /**
+   * POST /api/project/switch — switch to a different project (Phase 3).
+   */
+  async switchProject(project: string): Promise<ReviewProjectView> {
+    return this.projectMutation("/api/project/switch", "POST", { project });
+  }
+
+  /**
+   * DELETE /api/project — delete current active project (Phase 3).
+   */
+  async deleteProject(confirm: string): Promise<void> {
+    await this.jsonMutation<DeleteProjectApiResponse>("/api/project", "DELETE", { confirm });
   }
 
   /**
@@ -424,12 +422,8 @@ export class ReviewApiClient {
 
 /**
  * Create a ReviewApiClient from the current browser environment.
- * Returns null if no token is available.
+ * Phase 3: no token needed — always returns a client.
  */
-export function createClientFromEnv(): ReviewApiClient | null {
-  const token = resolveSessionToken();
-  if (!token) return null;
-
-  const baseUrl = resolveBaseUrl();
-  return new ReviewApiClient({ baseUrl, token });
+export function createClientFromEnv(): ReviewApiClient {
+  return new ReviewApiClient({ baseUrl: resolveBaseUrl() });
 }

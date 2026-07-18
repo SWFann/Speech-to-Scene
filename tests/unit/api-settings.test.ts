@@ -16,6 +16,7 @@ const SAMPLE_VIEW: SettingsView = {
   deepseekModel: "",
   stepBaseUrl: "",
   stepModel: "",
+  stepImageModel: "",
   pexelsBaseUrl: "",
   pexelsVideoBaseUrl: "",
 };
@@ -70,7 +71,7 @@ function fakeDeps(overrides: Partial<ReviewServerDependencies> = {}): ReviewServ
 
 describe("settings routes", () => {
   const cfg = {
-    projectRoot: "/proj",
+    workspaceRoot: "/workspace", projectRootRef: { current: "/proj" },
     host: "127.0.0.1",
     getBoundPort: () => 3210,
     version: "v",

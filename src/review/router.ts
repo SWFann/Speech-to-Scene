@@ -3,15 +3,12 @@
  *
  * Defines all API routes and handles path matching.
  *
- * M4-02: GET /api/health (no token required)
- * M4-03B: GET /api/project (session token required)
- * M4-04B: PATCH /api/scenes/:sceneId (session token + Origin required)
- * M4-04B: PUT  /api/scenes/:sceneId/queries (session token + Origin required)
- * M4-05:  POST /api/scenes/:sceneId/search (session token + Origin required)
- *
- * Phase 1 material-discovery redesign:
- * - The selection / skip / local-asset routes have been removed.
- * - Search bodies accept `providers` (array) instead of `provider` (enum).
+ * Phase 3 changes:
+ * - `projectRoot` is now a mutable ref (projectRootRef) for multi-project support.
+ * - `workspaceRoot` added for project listing/switching.
+ * - New routes: GET /api/projects, POST /api/project/switch, DELETE /api/project.
+ * - POST /api/project/create accepts optional `projectName`.
+ * - Session token removed from all routes.
  *
  * Response utilities (applySecurityHeaders, sendError, sendSuccess, etc.)
  * are NOT defined here — they live in security/response-headers.ts and
@@ -22,6 +19,7 @@ import { z } from "zod";
 
 import type { RouteDefinition } from "./review-types.js";
 import type { ReviewServerDependencies } from "./review-types.js";
+import type { ProjectRootRef } from "./review-server.js";
 import { sendSuccess, sendError, sendInternalError } from "./json-response.js";
 import { parseJsonBody } from "./json-body.js";
 import type { ServerResponse } from "node:http";
@@ -101,17 +99,9 @@ function validateSceneId(raw: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Route table
+// Settings / project body schemas
 // ---------------------------------------------------------------------------
 
-/**
- * Creates the route table for the server.
- *
- * @param config - The resolved server configuration.
- * @param getBoundPort - A function that returns the current bound port.
- *   This is needed because the port may be 0 at creation time (OS-assigned).
- * @param deps - Injected dependencies (repository, application use cases).
- */
 /**
  * Strict schema for PUT /api/settings body.
  *
@@ -126,6 +116,7 @@ const SaveSettingsBodySchema = z.strictObject({
   stepApiKey: z.string().min(1).optional(),
   stepBaseUrl: z.string().url().optional(),
   stepModel: z.string().min(1).optional(),
+  stepImageModel: z.string().min(1).optional(),
   pexelsApiKey: z.string().min(1).optional(),
   pexelsBaseUrl: z.string().url().optional(),
   pexelsVideoBaseUrl: z.string().url().optional(),
@@ -133,6 +124,20 @@ const SaveSettingsBodySchema = z.strictObject({
   unsplashApiKey: z.string().min(1).optional(),
   openverseApiKey: z.string().min(1).optional(),
 });
+
+/**
+ * Validates a project name for switch/create operations.
+ * Rejects path traversal, hidden dirs, and special chars.
+ */
+function isValidProjectName(name: string): boolean {
+  if (!name || name.trim().length === 0) return false;
+  if (name.includes("/") || name.includes("\\")) return false;
+  if (name === "." || name === "..") return false;
+  if (name.startsWith(".")) return false;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f]/.test(name)) return false;
+  return true;
+}
 
 /** Body schema for POST /api/project/create. */
 const CreateProjectBodySchema = z.strictObject({
@@ -145,6 +150,8 @@ const CreateProjectBodySchema = z.strictObject({
   intendedUse: z.enum(["commercial_capable", "noncommercial", "editorial"]).optional(),
   willModify: z.boolean().optional(),
   force: z.boolean().optional().default(false),
+  /** Phase 3: project name within the workspace (defaults to "default"). */
+  projectName: z.string().min(1).optional(),
 });
 
 /** Body schema for POST /api/project/plan. */
@@ -161,8 +168,39 @@ const SearchProjectBodySchema = z.strictObject({
   limit: z.number().int().min(1).max(50).optional().default(12),
 });
 
+/** Body schema for POST /api/scenes/:sceneId/generate (Phase 2: AI image generation). */
+const GenerateImageBodySchema = z.strictObject({
+  prompt: z.string().min(1, "prompt 不能为空"),
+  aspectRatio: z.enum(["9:16", "16:9", "1:1"]).optional().default("9:16"),
+});
+
+/** Body schema for POST /api/project/switch (Phase 3). */
+const SwitchProjectBodySchema = z.strictObject({
+  project: z.string().min(1),
+});
+
+/** Body schema for DELETE /api/project (Phase 3). */
+const DeleteProjectBodySchema = z.strictObject({
+  confirm: z.string().min(1),
+});
+
+// ---------------------------------------------------------------------------
+// Route table
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates the route table for the server.
+ *
+ * Phase 3: `projectRootRef` is a mutable ref — routes read the current
+ * project root dynamically so project switching takes effect immediately.
+ * `workspaceRoot` is used for project listing and creation.
+ *
+ * @param config - The resolved server configuration with workspaceRoot,
+ *   projectRootRef, host, getBoundPort, version, and optional deps.
+ */
 export function createRoutes(config: {
-  readonly projectRoot: string;
+  readonly workspaceRoot: string;
+  readonly projectRootRef: ProjectRootRef;
   readonly host: string;
   readonly getBoundPort: () => number;
   readonly version: string;
@@ -174,7 +212,7 @@ export function createRoutes(config: {
       methods: ["GET"],
       handler: (_req, res) => {
         sendSuccess(res, 200, {
-          projectRoot: config.projectRoot,
+          projectRoot: config.projectRootRef.current ?? "",
           host: config.host,
           port: config.getBoundPort(),
           version: config.version,
@@ -183,7 +221,7 @@ export function createRoutes(config: {
     },
   ];
 
-  // M4-03B + M4-04B: routes that require injected dependencies
+  // Routes that require injected dependencies
   if (config.deps) {
     const {
       repository,
@@ -196,7 +234,126 @@ export function createRoutes(config: {
       createProjectFromContent,
       planProject,
       searchProjectAssets,
+      generateSceneImage,
+      listProjects,
+      switchProject,
+      deleteProject,
     } = config.deps;
+
+    // Helper to get current project root (returns null + sends 404 if not set)
+    const requireProjectRoot = (res: ServerResponse): string | null => {
+      const root = config.projectRootRef.current;
+      if (!root) {
+        sendError(res, 404, "not_found", "No active project", "Create or switch to a project first");
+        return null;
+      }
+      return root;
+    };
+
+    // --- Phase 3: GET /api/projects (list all projects in workspace) ---
+    if (listProjects) {
+      routes.push({
+        path: "/api/projects",
+        methods: ["GET"],
+        handler: async (_req, res) => {
+          try {
+            const result = await listProjects(config.workspaceRoot);
+            const activeProjectName = config.projectRootRef.current
+              ? config.projectRootRef.current.split("/").pop() ?? null
+              : null;
+            sendSuccess(res, 200, {
+              projects: result.projects.map((p) => ({
+                ...p,
+                isActive: p.name === activeProjectName,
+              })),
+              activeProject: activeProjectName,
+            });
+          } catch {
+            sendInternalError(res);
+          }
+        },
+      });
+    }
+
+    // --- Phase 3: POST /api/project/switch (switch active project) ---
+    if (switchProject) {
+      routes.push({
+        path: "/api/project/switch",
+        methods: ["POST"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = SwitchProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid switch body");
+            return;
+          }
+          try {
+            const result = await switchProject({
+              workspaceRoot: config.workspaceRoot,
+              project: parsed.data.project,
+            });
+            // Update the mutable project root ref
+            config.projectRootRef.current = result.projectRoot;
+            const project = await getReviewProject(result.projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
+
+    // --- Phase 3: DELETE /api/project (delete current active project) ---
+    if (deleteProject) {
+      routes.push({
+        path: "/api/project",
+        methods: ["DELETE"],
+        handler: async (req, res) => {
+          const currentRoot = config.projectRootRef.current;
+          if (!currentRoot) {
+            sendError(res, 404, "not_found", "No active project to delete");
+            return;
+          }
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = DeleteProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid delete body");
+            return;
+          }
+          try {
+            await deleteProject({
+              projectRoot: currentRoot,
+              confirm: parsed.data.confirm,
+            });
+            // Clear the active project
+            config.projectRootRef.current = null;
+            sendSuccess(res, 200, { ok: true });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
 
     // Settings routes: only register when getSettings/saveSettings are wired (E1)
     if (getSettings && saveSettings) {
@@ -268,9 +425,16 @@ export function createRoutes(config: {
             sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid project create body");
             return;
           }
+          // Phase 3: derive projectDirectory from workspaceRoot + projectName
+          const projectName = parsed.data.projectName ?? "default";
+          if (!isValidProjectName(projectName)) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid project name");
+            return;
+          }
+          const projectDirectory = `${config.workspaceRoot.replace(/\/+$/, "")}/${projectName}`;
           try {
             await createProjectFromContent({
-              projectDirectory: config.projectRoot,
+              projectDirectory,
               content: new TextEncoder().encode(parsed.data.content),
               originalFileName: parsed.data.fileName ?? "script.md",
               title: parsed.data.title ?? "",
@@ -281,7 +445,9 @@ export function createRoutes(config: {
               willModify: parsed.data.willModify ?? true,
               force: parsed.data.force,
             });
-            const project = await getReviewProject(config.projectRoot, repository);
+            // Phase 3: set the new project as active
+            config.projectRootRef.current = projectDirectory;
+            const project = await getReviewProject(projectDirectory, repository);
             sendSuccess(res, 200, { project });
           } catch (error) {
             mapMutationError(error, res);
@@ -294,6 +460,9 @@ export function createRoutes(config: {
         path: "/api/project/plan",
         methods: ["POST"],
         handler: async (req, res) => {
+          const projectRoot = requireProjectRoot(res);
+          if (!projectRoot) return;
+
           const bodyResult = await parseJsonBody(req, res);
           if (!bodyResult.success) {
             sendError(
@@ -312,13 +481,13 @@ export function createRoutes(config: {
           }
           try {
             await planProject({
-              projectRoot: config.projectRoot,
+              projectRoot,
               provider: parsed.data.provider,
               maxScenes: parsed.data.maxScenes,
               force: parsed.data.force,
               dryRun: false,
             });
-            const project = await getReviewProject(config.projectRoot, repository);
+            const project = await getReviewProject(projectRoot, repository);
             sendSuccess(res, 200, { project });
           } catch (error) {
             mapMutationError(error, res);
@@ -331,6 +500,9 @@ export function createRoutes(config: {
         path: "/api/project/search",
         methods: ["POST"],
         handler: async (req, res) => {
+          const projectRoot = requireProjectRoot(res);
+          if (!projectRoot) return;
+
           const bodyResult = await parseJsonBody(req, res);
           if (!bodyResult.success) {
             sendError(
@@ -349,14 +521,14 @@ export function createRoutes(config: {
           }
           try {
             await searchProjectAssets({
-              projectRoot: config.projectRoot,
+              projectRoot,
               ...(parsed.data.providers !== undefined
                 ? { providers: parsed.data.providers }
                 : {}),
               maxAssetsPerQuery: parsed.data.limit,
               refresh: parsed.data.refresh,
             });
-            const project = await getReviewProject(config.projectRoot, repository);
+            const project = await getReviewProject(projectRoot, repository);
             sendSuccess(res, 200, { project });
           } catch (error) {
             mapMutationError(error, res);
@@ -365,16 +537,17 @@ export function createRoutes(config: {
       });
     }
 
-    // GET /api/project (requires session token)
+    // GET /api/project (returns current active project)
     routes.push({
       path: "/api/project",
       methods: ["GET"],
       handler: async (_req, res) => {
+        const projectRoot = requireProjectRoot(res);
+        if (!projectRoot) return;
         try {
-          const project = await getReviewProject(config.projectRoot, repository);
+          const project = await getReviewProject(projectRoot, repository);
           sendSuccess(res, 200, { project });
         } catch (error) {
-          // Map errors to safe HTTP responses — never leak internal details
           mapProjectLoadError(error, res);
         }
       },
@@ -385,16 +558,16 @@ export function createRoutes(config: {
       path: "/api/scenes/:sceneId",
       methods: ["PATCH"],
       handler: async (req, res, params) => {
-        const sceneId = params.pathParams["sceneId"];
+        const projectRoot = requireProjectRoot(res);
+        if (!projectRoot) return;
 
-        // Validate sceneId from path
+        const sceneId = params.pathParams["sceneId"];
         const validSceneId = validateSceneId(sceneId ?? "");
         if (!validSceneId) {
           sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
           return;
         }
 
-        // Read and parse JSON body
         const bodyResult = await parseJsonBody(req, res);
         if (!bodyResult.success) {
           sendError(
@@ -407,7 +580,6 @@ export function createRoutes(config: {
           return;
         }
 
-        // Reject no-op patch: { visualPlan: {} } with no fields to update
         const patchData = bodyResult.data;
         if (
           typeof patchData === "object" &&
@@ -428,17 +600,15 @@ export function createRoutes(config: {
           return;
         }
 
-        // Build the use case input
         const useCaseInput = {
-          projectRoot: config.projectRoot,
+          projectRoot,
           sceneId: validSceneId,
           patch: bodyResult.data,
         };
 
         try {
           await updateScene(useCaseInput, { repository });
-          // Success: return fresh UI-safe view
-          const project = await getReviewProject(config.projectRoot, repository);
+          const project = await getReviewProject(projectRoot, repository);
           sendSuccess(res, 200, { project });
         } catch (error) {
           mapMutationError(error, res);
@@ -451,16 +621,16 @@ export function createRoutes(config: {
       path: "/api/scenes/:sceneId/queries",
       methods: ["PUT"],
       handler: async (req, res, params) => {
-        const sceneId = params.pathParams["sceneId"];
+        const projectRoot = requireProjectRoot(res);
+        if (!projectRoot) return;
 
-        // Validate sceneId from path
+        const sceneId = params.pathParams["sceneId"];
         const validSceneId = validateSceneId(sceneId ?? "");
         if (!validSceneId) {
           sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
           return;
         }
 
-        // Read and parse JSON body
         const bodyResult = await parseJsonBody(req, res);
         if (!bodyResult.success) {
           sendError(
@@ -473,8 +643,6 @@ export function createRoutes(config: {
           return;
         }
 
-        // Strict Zod validation: only { queries: [...] } is accepted.
-        // Unknown top-level fields (e.g. extra, projectRoot, sceneId) are rejected.
         const bodyParse = PutQueriesBodySchema.safeParse(bodyResult.data);
         if (!bodyParse.success) {
           sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
@@ -482,15 +650,14 @@ export function createRoutes(config: {
         }
 
         const useCaseInput = {
-          projectRoot: config.projectRoot,
+          projectRoot,
           sceneId: validSceneId,
           queries: bodyParse.data.queries,
         };
 
         try {
           await updateSceneQueries(useCaseInput, { repository });
-          // Success: return fresh UI-safe view
-          const project = await getReviewProject(config.projectRoot, repository);
+          const project = await getReviewProject(projectRoot, repository);
           sendSuccess(res, 200, { project });
         } catch (error) {
           mapMutationError(error, res);
@@ -498,25 +665,21 @@ export function createRoutes(config: {
       },
     });
 
-    // POST /api/scenes/:sceneId/search (M4-05)
-    //
-    // Triggers an asset search for exactly one scene using the specified
-    // provider(s). The search reuses the searchProjectAssets use case. After
-    // the search completes, a fresh UI-safe project view is returned.
+    // POST /api/scenes/:sceneId/search
     routes.push({
       path: "/api/scenes/:sceneId/search",
       methods: ["POST"],
       handler: async (req, res, params) => {
-        const sceneId = params.pathParams["sceneId"];
+        const projectRoot = requireProjectRoot(res);
+        if (!projectRoot) return;
 
-        // Validate sceneId from path
+        const sceneId = params.pathParams["sceneId"];
         const validSceneId = validateSceneId(sceneId ?? "");
         if (!validSceneId) {
           sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
           return;
         }
 
-        // Read and parse JSON body
         const bodyResult = await parseJsonBody(req, res);
         if (!bodyResult.success) {
           sendError(
@@ -529,20 +692,14 @@ export function createRoutes(config: {
           return;
         }
 
-        // Strict Zod validation: only { providers?, refresh, limit } is accepted.
-        // Unknown top-level fields (e.g. extra, projectRoot, sceneId, cachePath,
-        // provider config) are rejected.
         const bodyParse = SearchBodySchema.safeParse(bodyResult.data);
         if (!bodyParse.success) {
           sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
           return;
         }
 
-        // Build the use case input.
-        // projectRoot and sceneId come from server config / URL path — never
-        // from the request body.
         const useCaseInput = {
-          projectRoot: config.projectRoot,
+          projectRoot,
           sceneId: validSceneId,
           ...(bodyParse.data.providers !== undefined
             ? { providers: bodyParse.data.providers }
@@ -553,14 +710,65 @@ export function createRoutes(config: {
 
         try {
           await searchSceneAssets(useCaseInput);
-          // Success: return fresh UI-safe view (same as PATCH/PUT)
-          const project = await getReviewProject(config.projectRoot, repository);
+          const project = await getReviewProject(projectRoot, repository);
           sendSuccess(res, 200, { project });
         } catch (error) {
           mapMutationError(error, res);
         }
       },
     });
+
+    // POST /api/scenes/:sceneId/generate (Phase 2: AI image generation)
+    if (generateSceneImage) {
+      routes.push({
+        path: "/api/scenes/:sceneId/generate",
+        methods: ["POST"],
+        handler: async (req, res, params) => {
+          const projectRoot = requireProjectRoot(res);
+          if (!projectRoot) return;
+
+          const sceneId = params.pathParams["sceneId"];
+          const validSceneId = validateSceneId(sceneId ?? "");
+          if (!validSceneId) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
+            return;
+          }
+
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+
+          const bodyParse = GenerateImageBodySchema.safeParse(bodyResult.data);
+          if (!bodyParse.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
+            return;
+          }
+
+          const useCaseInput = {
+            projectRoot,
+            sceneId: validSceneId,
+            prompt: bodyParse.data.prompt,
+            aspectRatio: bodyParse.data.aspectRatio,
+          };
+
+          try {
+            await generateSceneImage(useCaseInput);
+            const project = await getReviewProject(projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
   }
 
   return routes;
@@ -687,6 +895,12 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
   // ProjectNotFoundError → 404
   if (code === "project_not_found") {
     sendError(res, 404, "not_found", "Project not found", "Ensure the project was created");
+    return;
+  }
+
+  // InvalidArgumentError → 400 (e.g., bad project name for switch/delete)
+  if (code === "invalid_argument") {
+    sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request");
     return;
   }
 

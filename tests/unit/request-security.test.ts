@@ -3,7 +3,7 @@
  *
  * Tests the two-phase security gate:
  * - Phase 1: checkHostGate (pre-routing, Host only)
- * - Phase 2: runPostRoutingGate (post-routing, method/Origin/Token)
+ * - Phase 2: runPostRoutingGate (post-routing, method/Origin)
  */
 
 import http from "node:http";
@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 import {
   checkHost,
   checkOrigin,
-  checkToken,
   checkHostGate,
   runPostRoutingGate,
   type RequestSecurityConfig,
@@ -38,7 +37,6 @@ function createMockRequest(
 const BASE_CONFIG: RequestSecurityConfig = {
   boundHost: "127.0.0.1",
   boundPort: 3210,
-  boundToken: "test-token-123",
 };
 
 // ---------------------------------------------------------------------------
@@ -139,58 +137,6 @@ describe("request-security", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // checkToken (individual validator)
-  // ---------------------------------------------------------------------------
-
-  describe("checkToken", () => {
-    it("passes with correct token", () => {
-      const req = createMockRequest("POST", { "x-s2s-session": "test-token-123" });
-      const result = checkToken(req, BASE_CONFIG);
-      expect(result).toBeNull();
-    });
-
-    it("returns session_required when token is missing", () => {
-      const req = createMockRequest("POST", {});
-      const result = checkToken(req, BASE_CONFIG);
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(401);
-      expect(result!.code).toBe("session_required");
-    });
-
-    it("returns session_rejected for wrong token", () => {
-      const req = createMockRequest("POST", { "x-s2s-session": "wrong-token" });
-      const result = checkToken(req, BASE_CONFIG);
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
-      expect(result!.code).toBe("session_rejected");
-    });
-
-    it("returns session_required for empty token", () => {
-      const req = createMockRequest("POST", { "x-s2s-session": "" });
-      const result = checkToken(req, BASE_CONFIG);
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(401);
-    });
-
-    it("rejects multi-value token header", () => {
-      const req = createMockRequest("POST", {
-        "x-s2s-session": ["test-token-123", "other"],
-      });
-      const result = checkToken(req, BASE_CONFIG);
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
-      expect(result!.code).toBe("session_rejected");
-    });
-
-    it("is case-sensitive", () => {
-      const req = createMockRequest("POST", { "x-s2s-session": "TEST-TOKEN-123" });
-      const result = checkToken(req, BASE_CONFIG);
-      expect(result).not.toBeNull();
-      expect(result!.statusCode).toBe(403);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
   // checkHostGate (pre-routing, Host only)
   // ---------------------------------------------------------------------------
 
@@ -208,10 +154,9 @@ describe("request-security", () => {
       expect(result.rejection!.statusCode).toBe(403);
     });
 
-    it("rejects POST with wrong Host even with valid token", () => {
+    it("rejects POST with wrong Host", () => {
       const req = createMockRequest("POST", {
         host: "evil.com:3210",
-        "x-s2s-session": "test-token-123",
       });
       const result = checkHostGate(req, BASE_CONFIG);
       expect(result.passed).toBe(false);
@@ -247,52 +192,28 @@ describe("request-security", () => {
 
     // --- Mutating requests ---
 
-    it("allows POST with Origin and token", () => {
+    it("allows POST with valid Origin", () => {
       const req = createMockRequest("POST", {
         host: "127.0.0.1:3210",
         origin: "http://127.0.0.1:3210",
-        "x-s2s-session": "test-token-123",
       });
       const result = runPostRoutingGate(req, "POST", ["POST"], BASE_CONFIG);
       expect(result.passed).toBe(true);
-    });
-
-    it("rejects POST without token", () => {
-      const req = createMockRequest("POST", {
-        host: "127.0.0.1:3210",
-        origin: "http://127.0.0.1:3210",
-      });
-      const result = runPostRoutingGate(req, "POST", ["POST"], BASE_CONFIG);
-      expect(result.passed).toBe(false);
-      expect(result.rejection!.statusCode).toBe(401);
-    });
-
-    it("rejects POST with wrong token", () => {
-      const req = createMockRequest("POST", {
-        host: "127.0.0.1:3210",
-        origin: "http://127.0.0.1:3210",
-        "x-s2s-session": "wrong-token",
-      });
-      const result = runPostRoutingGate(req, "POST", ["POST"], BASE_CONFIG);
-      expect(result.passed).toBe(false);
-      expect(result.rejection!.statusCode).toBe(403);
     });
 
     it("rejects POST with evil Origin", () => {
       const req = createMockRequest("POST", {
         host: "127.0.0.1:3210",
         origin: "https://evil.example",
-        "x-s2s-session": "test-token-123",
       });
       const result = runPostRoutingGate(req, "POST", ["POST"], BASE_CONFIG);
       expect(result.passed).toBe(false);
       expect(result.rejection!.statusCode).toBe(403);
     });
 
-    it("allows mutating request without Origin but with valid token", () => {
+    it("allows mutating request without Origin", () => {
       const req = createMockRequest("PUT", {
         host: "127.0.0.1:3210",
-        "x-s2s-session": "test-token-123",
       });
       const result = runPostRoutingGate(req, "PUT", ["PUT"], BASE_CONFIG);
       expect(result.passed).toBe(true);
@@ -307,13 +228,5 @@ describe("request-security", () => {
       expect(result.rejection!.statusCode).toBe(405);
     });
 
-    // --- Rejection status codes ---
-
-    it("rejection has correct status code for 401", () => {
-      const req = createMockRequest("POST", { host: "127.0.0.1:3210" });
-      const result = runPostRoutingGate(req, "POST", ["POST"], BASE_CONFIG);
-      expect(result.passed).toBe(false);
-      expect(result.rejection!.statusCode).toBe(401);
-    });
   });
 });

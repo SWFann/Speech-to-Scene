@@ -180,7 +180,6 @@ async function writeProjectFile(projectRoot: string, content: unknown): Promise<
 
 async function startServerWithRealRepo(
   projectRoot: string,
-  token = "test-token",
 ): Promise<{ handle: ReviewServerHandle; port: number }> {
   const repo = new JsonProjectRepository();
   const deps: ReviewServerDependencies = {
@@ -191,7 +190,7 @@ async function startServerWithRealRepo(
     searchSceneAssets: () =>
       Promise.reject(new Error("searchSceneAssets not configured for this test")),
   };
-  const handle = await startReviewServer({ projectRoot, host: "127.0.0.1", port: 0, token }, deps);
+  const handle = await startReviewServer({ projectRoot, host: "127.0.0.1", port: 0 }, deps);
   servers.push({ handle });
   return { handle, port: handle.port };
 }
@@ -327,7 +326,7 @@ describe("Unknown repository error → HTTP mapping", () => {
         Promise.reject(new Error("searchSceneAssets not configured for this test")),
     };
     const handle = await startReviewServer(
-      { projectRoot: "/fake/root", host: "127.0.0.1", port: 0, token: "test-token" },
+      { projectRoot: "/fake/root", host: "127.0.0.1", port: 0 },
       deps,
     );
     servers.push({ handle });

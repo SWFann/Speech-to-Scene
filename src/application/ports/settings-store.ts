@@ -15,6 +15,7 @@ export interface Settings {
   readonly stepApiKey?: string;
   readonly stepBaseUrl?: string;
   readonly stepModel?: string;
+  readonly stepImageModel?: string;
   readonly pexelsApiKey?: string;
   readonly pexelsBaseUrl?: string;
   readonly pexelsVideoBaseUrl?: string;
@@ -39,6 +40,7 @@ export interface SettingsView {
   readonly deepseekModel: string;
   readonly stepBaseUrl: string;
   readonly stepModel: string;
+  readonly stepImageModel: string;
   readonly pexelsBaseUrl: string;
   readonly pexelsVideoBaseUrl: string;
 }

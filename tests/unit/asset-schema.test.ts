@@ -351,4 +351,112 @@ describe("AssetCandidateSchema", () => {
       }),
     ).toThrow();
   });
+
+  // ----- generated-kind candidate (Phase 2: AI image generation) -----
+
+  // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+  const baseGeneratedCandidate = () => ({
+    kind: "generated" as const,
+    id: "gen-001",
+    provider: {
+      id: "stepfun-image",
+      name: "StepFun Image Generator",
+      homepageUrl: "https://platform.stepfun.com",
+      termsUrl: "https://platform.stepfun.com/terms",
+      policyRevision: "stepfun-image-policy-2026-07-18",
+      termsCheckedAt: "2026-07-18T00:00:00Z",
+    },
+    prompt: "A beautiful landscape with mountains",
+    imageUrl: "https://example.com/generated.png",
+    thumbnailUrl: "https://example.com/generated.png",
+    width: 1024,
+    height: 1792,
+    orientation: "portrait" as const,
+    model: "step-1x-medium",
+    generatedAt: "2026-07-18T10:00:00Z",
+    matchedQueryId: "query-001",
+    rank: 1,
+  });
+
+  it("accepts valid generated candidate", () => {
+    expect(AssetCandidateSchema.parse(baseGeneratedCandidate())).toBeDefined();
+  });
+
+  it("accepts generated candidate with landscape orientation", () => {
+    expect(
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        width: 1792,
+        height: 1024,
+        orientation: "landscape",
+      }),
+    ).toBeDefined();
+  });
+
+  it("accepts generated candidate with square orientation", () => {
+    expect(
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        width: 1024,
+        height: 1024,
+        orientation: "square",
+      }),
+    ).toBeDefined();
+  });
+
+  it("rejects generated candidate with mismatched orientation", () => {
+    expect(() =>
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        width: 1024,
+        height: 1024,
+        orientation: "portrait", // should be square
+      }),
+    ).toThrow();
+  });
+
+  it("rejects generated candidate with non-HTTPS imageUrl", () => {
+    expect(() =>
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        imageUrl: "http://example.com/generated.png",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects generated candidate with empty prompt", () => {
+    expect(() =>
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        prompt: "   ",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects generated candidate with empty model", () => {
+    expect(() =>
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        model: "",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects generated candidate with non-positive rank", () => {
+    expect(() =>
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        rank: 0,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects generated candidate with extra fields", () => {
+    expect(() =>
+      AssetCandidateSchema.parse({
+        ...baseGeneratedCandidate(),
+        extraField: "should be rejected",
+      }),
+    ).toThrow();
+  });
 });

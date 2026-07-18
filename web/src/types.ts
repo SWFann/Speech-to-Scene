@@ -82,11 +82,31 @@ export interface ReviewAssetCandidateLinkView {
 }
 
 /**
+ * Generated-kind candidate (an AI-generated image).
+ */
+export interface ReviewAssetCandidateGeneratedView {
+  readonly kind: "generated";
+  readonly id: string;
+  readonly provider: ReviewProviderSnapshotView;
+  readonly prompt: string;
+  readonly imageUrl: string;
+  readonly thumbnailUrl: string;
+  readonly width: number;
+  readonly height: number;
+  readonly orientation: "portrait" | "landscape" | "square";
+  readonly model: string;
+  readonly generatedAt: string;
+  readonly matchedQueryId: string;
+  readonly rank: number;
+}
+
+/**
  * Asset candidate (discriminated union on `kind`).
  */
 export type ReviewAssetCandidateView =
   | ReviewAssetCandidateAssetView
-  | ReviewAssetCandidateLinkView;
+  | ReviewAssetCandidateLinkView
+  | ReviewAssetCandidateGeneratedView;
 
 export interface ReviewSearchQueryView {
   readonly id: string;
@@ -191,6 +211,29 @@ export interface ProjectApiResponse {
   readonly project: ReviewProjectView;
 }
 
+/** Phase 3: a single project entry in the workspace listing. */
+export interface ProjectListItem {
+  readonly name: string;
+  readonly path: string;
+  readonly hasProject: true;
+  readonly title: string;
+  readonly sceneCount: number;
+  readonly updatedAt: string;
+  readonly isActive: boolean;
+}
+
+/** Phase 3: GET /api/projects response envelope. */
+export interface ProjectsApiResponse {
+  readonly ok: true;
+  readonly projects: readonly ProjectListItem[];
+  readonly activeProject: string | null;
+}
+
+/** Phase 3: DELETE /api/project response envelope. */
+export interface DeleteProjectApiResponse {
+  readonly ok: true;
+}
+
 /** GET /api/health response. */
 export interface HealthApiResponse {
   readonly ok: true;
@@ -223,6 +266,7 @@ export interface SettingsView {
   readonly deepseekModel: string;
   readonly stepBaseUrl: string;
   readonly stepModel: string;
+  readonly stepImageModel: string;
   readonly pexelsBaseUrl: string;
   readonly pexelsVideoBaseUrl: string;
 }

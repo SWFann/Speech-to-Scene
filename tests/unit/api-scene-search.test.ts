@@ -10,8 +10,7 @@
  *  6.  Invalid provider → 400 invalid_request
  *  7.  Unknown body field → 400 invalid_request
  *  8.  Body attempting to override projectRoot/sceneId/cachePath → 400
- *  9.  Missing token → 401 session_required
- * 10.  Wrong token → 403 session_rejected
+ *  9.  POST search succeeds without session token (Phase 3)
  * 11.  Bad Origin → 403 origin_rejected
  * 12.  Evil Host → 403 host_rejected (before body parse)
  * 13.  Malformed JSON → 400 invalid_json
@@ -378,11 +377,10 @@ async function startTestServer(
 
 describe("POST /api/scenes/:sceneId/search", () => {
   it("1. fixture provider single-scene search success", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -396,7 +394,6 @@ describe("POST /api/scenes/:sceneId/search", () => {
 
   it("2. only the specified scene gets candidates (other scenes untouched)", async () => {
     const { port, repo, projectRoot } = await startTestServer({
-      token: "tok",
       useFileCache: true,
       projectRoot: "/test/search-api-isolated",
     });
@@ -405,7 +402,6 @@ describe("POST /api/scenes/:sceneId/search", () => {
     await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -420,14 +416,12 @@ describe("POST /api/scenes/:sceneId/search", () => {
 
   it("3. response is UI-safe DTO (no projectRoot/token/API key)", async () => {
     const { port } = await startTestServer({
-      token: "super-secret-token",
       projectRoot: "/very/secret/path",
       useFileCache: true,
     });
     const { body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "super-secret-token",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -440,13 +434,12 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("4. GET /api/project reflects POST search results", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
 
     // Before search: scene-001 has 0 candidates
     const before = await httpRequest(port, "/api/project", {
       method: "GET",
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
     const beforeScenes = (
       before.body as { project: { scenes: Array<{ search: { candidates: unknown[] } }> } }
@@ -457,7 +450,6 @@ describe("POST /api/scenes/:sceneId/search", () => {
     await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -465,7 +457,6 @@ describe("POST /api/scenes/:sceneId/search", () => {
     const after = await httpRequest(port, "/api/project", {
       method: "GET",
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
     const afterScenes = (
       after.body as {
@@ -479,11 +470,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("5. unknown scene → 404 not_found", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/non-existent/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -492,11 +482,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("6. invalid provider → 400 invalid_request", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["invalid_provider"] }),
     });
 
@@ -505,11 +494,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("7. unknown body field → 400 invalid_request", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], extra: "bad" }),
     });
 
@@ -519,13 +507,11 @@ describe("POST /api/scenes/:sceneId/search", () => {
 
   it("8. body attempting to override projectRoot → 400", async () => {
     const { port, repo, projectRoot } = await startTestServer({
-      token: "tok",
       useFileCache: true,
     });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], projectRoot: "/evil/path" }),
     });
 
@@ -537,11 +523,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("8b. body attempting to override sceneId → 400", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], sceneId: "evil-scene" }),
     });
 
@@ -550,11 +535,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("8c. body attempting to override cachePath → 400", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], cachePath: "/evil/cache" }),
     });
 
@@ -562,38 +546,24 @@ describe("POST /api/scenes/:sceneId/search", () => {
     expect((body as { error: { code: string } }).error.code).toBe("invalid_request");
   }, 10000);
 
-  it("9. missing token → 401 session_required", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+  it("9. POST search succeeds without session token (Phase 3)", async () => {
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
-    expect(status).toBe(401);
-    expect((body as { error: { code: string } }).error.code).toBe("session_required");
-  }, 10000);
-
-  it("10. wrong token → 403 session_rejected", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
-    const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
-      method: "POST",
-      host: `127.0.0.1:${port}`,
-      token: "wrong",
-      body: JSON.stringify({ providers: ["fixture"] }),
-    });
-
-    expect(status).toBe(403);
-    expect((body as { error: { code: string } }).error.code).toBe("session_rejected");
+    expect(status).toBe(200);
+    expect((body as { ok: boolean }).ok).toBe(true);
   }, 10000);
 
   it("11. bad Origin → 403 origin_rejected", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
       origin: "https://evil.example",
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -602,11 +572,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("12. evil Host → 403 host_rejected (before body parse)", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: "evil.example:3210",
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -615,11 +584,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("13. malformed JSON → 400 invalid_json", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: "{broken json",
     });
 
@@ -628,11 +596,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("14. unsupported Content-Type → 415 unsupported_media_type", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       contentType: "text/plain",
       body: "not json",
     });
@@ -642,11 +609,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("15. malformed percent-encoding path → 400 invalid_request (not 500)", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/%E0%A4%A/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -655,12 +621,11 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("16. non-stock_asset scene → search succeeds (gating removed)", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     // scene-003 is speaker_only
     const { status } = await httpRequest(port, "/api/scenes/scene-003/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -693,14 +658,12 @@ describe("POST /api/scenes/:sceneId/search", () => {
     });
 
     const { port } = await startTestServer({
-      token: "tok",
       useFileCache: true,
       project,
     });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -729,14 +692,12 @@ describe("POST /api/scenes/:sceneId/search", () => {
 
   it("18. cache written under project directory cache/search/<provider>", async () => {
     const { port, projectRoot } = await startTestServer({
-      token: "tok",
       useFileCache: true,
     });
 
     await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -756,11 +717,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   it("19. no real Pexels or external service calls (fixture only)", async () => {
     // This test uses the fixture provider which makes no network calls.
     // The test server's createProvider always returns the fixture provider.
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"] }),
     });
 
@@ -769,11 +729,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("20. 405 Allow header for GET on POST-only route", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, headers } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "GET",
       host: `127.0.0.1:${port}`,
-      token: "tok",
     });
 
     expect(status).toBe(405);
@@ -781,13 +740,12 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("21. body too large → 413 payload_too_large", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     // Create a body larger than 1 MiB (the default max)
     const largeValue = "x".repeat(1024 * 1024 + 100);
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], extra: largeValue }),
     });
 
@@ -796,13 +754,12 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("22. refresh=true triggers provider search (not cache)", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
 
     // First search to populate cache
     await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], refresh: false }),
     });
 
@@ -810,7 +767,6 @@ describe("POST /api/scenes/:sceneId/search", () => {
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], refresh: true }),
     });
 
@@ -822,11 +778,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("23. limit field works correctly (default 12, max 50)", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], limit: 5 }),
     });
 
@@ -834,11 +789,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("24. limit out of range (>50) → 400", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], limit: 100 }),
     });
 
@@ -847,11 +801,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("25. limit out of range (0) → 400", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: JSON.stringify({ providers: ["fixture"], limit: 0 }),
     });
 
@@ -860,11 +813,10 @@ describe("POST /api/scenes/:sceneId/search", () => {
   }, 10000);
 
   it("26. empty body → 400 invalid_json", async () => {
-    const { port } = await startTestServer({ token: "tok", useFileCache: true });
+    const { port } = await startTestServer({ useFileCache: true });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001/search", {
       method: "POST",
       host: `127.0.0.1:${port}`,
-      token: "tok",
       body: "",
     });
 

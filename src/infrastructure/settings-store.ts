@@ -60,6 +60,7 @@ export class FsSettingsStore implements SettingsStore {
       deepseekModel: settings.deepseekModel ?? "",
       stepBaseUrl: settings.stepBaseUrl ?? "",
       stepModel: settings.stepModel ?? "",
+      stepImageModel: settings.stepImageModel ?? "",
       pexelsBaseUrl: settings.pexelsBaseUrl ?? "",
       pexelsVideoBaseUrl: settings.pexelsVideoBaseUrl ?? "",
     };

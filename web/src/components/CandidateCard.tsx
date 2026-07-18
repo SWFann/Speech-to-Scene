@@ -1,9 +1,10 @@
-import { ImageIcon, Video, ExternalLink, Link2 } from "lucide-react";
+import { ImageIcon, Video, ExternalLink, Link2, Sparkles } from "lucide-react";
 
 import type {
   ReviewAssetCandidateView,
   ReviewAssetCandidateAssetView,
   ReviewAssetCandidateLinkView,
+  ReviewAssetCandidateGeneratedView,
 } from "../types.js";
 
 interface CandidateCardProps {
@@ -133,9 +134,64 @@ function LinkCandidateCard({ candidate }: { candidate: ReviewAssetCandidateLinkV
   );
 }
 
+function GeneratedCandidateCard({
+  candidate,
+}: {
+  candidate: ReviewAssetCandidateGeneratedView;
+}): React.ReactElement {
+  return (
+    <article className="candidate generated-card">
+      <div className="thumb">
+        {candidate.thumbnailUrl ? (
+          <img
+            src={candidate.thumbnailUrl}
+            alt={`AI 生成的图片候选`}
+            loading="lazy"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        ) : (
+          <div className="thumb-placeholder">
+            <Sparkles size={32} />
+          </div>
+        )}
+        <span className="media-type">AI 生成</span>
+      </div>
+      <div className="candidate-body">
+        <div className="candidate-title">
+          <strong>
+            {candidate.width}×{candidate.height}
+          </strong>
+        </div>
+        <p className="generated-prompt" title={candidate.prompt}>
+          {candidate.prompt.length > 60
+            ? `${candidate.prompt.slice(0, 60)}…`
+            : candidate.prompt}
+        </p>
+        <div className="candidate-creator">
+          <span>模型: {candidate.model}</span>
+          {" · "}
+          <a href={candidate.imageUrl} target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={12} />
+            查看图片
+          </a>
+        </div>
+        <div className="rights">
+          <span className="tag">AI 生成</span>
+          <span className="tag">无版权限制</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export function CandidateCard({ candidate }: CandidateCardProps): React.ReactElement {
   if (candidate.kind === "asset") {
     return <AssetCandidateCard candidate={candidate} />;
+  }
+  if (candidate.kind === "generated") {
+    return <GeneratedCandidateCard candidate={candidate} />;
   }
   return <LinkCandidateCard candidate={candidate} />;
 }

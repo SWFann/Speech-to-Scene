@@ -15,6 +15,7 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
   const [unsplashKey, setUnsplashKey] = useState("");
   const [planner, setPlanner] = useState("fixture");
   const [plannerKey, setPlannerKey] = useState("");
+  const [stepImageModel, setStepImageModel] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -24,6 +25,7 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
       .then((v) => {
         setView(v);
         setPlanner(v.plannerProvider);
+        setStepImageModel(v.stepImageModel || "");
       })
       .catch(() => {});
   }, [client]);
@@ -37,6 +39,7 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
     if (unsplashKey) body.unsplashApiKey = unsplashKey;
     if (planner === "deepseek" && plannerKey) body.deepseekApiKey = plannerKey;
     if (planner === "stepfun" && plannerKey) body.stepApiKey = plannerKey;
+    if (stepImageModel) body.stepImageModel = stepImageModel;
     try {
       const v = await client.saveSettings(body);
       setView(v);
@@ -87,6 +90,19 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
                 />
               </>
             )}
+
+            <h3 className="settings-section-title">AI 图片生成</h3>
+            <label>StepFun 图片生成模型</label>
+            <input
+              type="text"
+              placeholder={view?.stepImageModel || "step-1x-medium"}
+              value={stepImageModel}
+              onChange={(e) => setStepImageModel(e.target.value)}
+              disabled={saving}
+            />
+            <p className="settings-hint">
+              复用 StepFun API Key。留空使用默认模型 step-1x-medium。
+            </p>
 
             <h3 className="settings-section-title">图库 API Key</h3>
             <label>Pexels API Key</label>

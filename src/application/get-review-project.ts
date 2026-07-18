@@ -27,6 +27,7 @@ import type {
   AssetCandidate,
   AssetCandidateAsset,
   AssetCandidateLink,
+  AssetCandidateGenerated,
   AssetRights,
   AssetProviderSnapshot,
   RightsEvidence,
@@ -123,11 +124,31 @@ export interface ReviewAssetCandidateLinkView {
 }
 
 /**
+ * UI-safe view of a generated-kind candidate (AI-generated image).
+ */
+export interface ReviewAssetCandidateGeneratedView {
+  readonly kind: "generated";
+  readonly id: string;
+  readonly provider: ReviewProviderSnapshotView;
+  readonly prompt: string;
+  readonly imageUrl: string;
+  readonly thumbnailUrl: string;
+  readonly width: number;
+  readonly height: number;
+  readonly orientation: "portrait" | "landscape" | "square";
+  readonly model: string;
+  readonly generatedAt: string;
+  readonly matchedQueryId: string;
+  readonly rank: number;
+}
+
+/**
  * UI-safe view of an asset candidate (discriminated union).
  */
 export type ReviewAssetCandidateView =
   | ReviewAssetCandidateAssetView
-  | ReviewAssetCandidateLinkView;
+  | ReviewAssetCandidateLinkView
+  | ReviewAssetCandidateGeneratedView;
 
 /**
  * UI-safe view of a search query.
@@ -345,9 +366,30 @@ function mapLinkCandidate(candidate: AssetCandidateLink): ReviewAssetCandidateLi
   };
 }
 
+function mapGeneratedCandidate(candidate: AssetCandidateGenerated): ReviewAssetCandidateGeneratedView {
+  return {
+    kind: "generated",
+    id: candidate.id,
+    provider: mapProviderSnapshot(candidate.provider),
+    prompt: candidate.prompt,
+    imageUrl: candidate.imageUrl,
+    thumbnailUrl: candidate.thumbnailUrl,
+    width: candidate.width,
+    height: candidate.height,
+    orientation: candidate.orientation,
+    model: candidate.model,
+    generatedAt: candidate.generatedAt,
+    matchedQueryId: candidate.matchedQueryId,
+    rank: candidate.rank,
+  };
+}
+
 function mapCandidate(candidate: AssetCandidate): ReviewAssetCandidateView {
   if (candidate.kind === "asset") {
     return mapAssetCandidate(candidate);
+  }
+  if (candidate.kind === "generated") {
+    return mapGeneratedCandidate(candidate);
   }
   return mapLinkCandidate(candidate);
 }
