@@ -12,7 +12,6 @@ import {
   AmbiguousQuoteError,
   QuoteNotFoundError,
   EmptySceneTextError,
-  OverlappingSceneError,
 } from "../../src/planner/anchor-resolver.js";
 
 // ---------------------------------------------------------------------------
@@ -314,7 +313,7 @@ describe("resolveAnchors", () => {
     expect(() => resolveAnchors(output, blocks)).toThrow(EmptySceneTextError);
   });
 
-  it("throws on overlapping scenes", () => {
+  it("clamps partially overlapping scenes (auto-repair)", () => {
     const output = makePlannerOutput([
       {
         sourceAnchor: {
@@ -352,7 +351,10 @@ describe("resolveAnchors", () => {
       },
     ]);
 
-    expect(() => resolveAnchors(output, sourceBlocks)).toThrow(OverlappingSceneError);
+    const result = resolveAnchors(output, sourceBlocks);
+    expect(result.scenes).toHaveLength(2);
+    // Scene 2 start is clamped to Scene 1's end so scenes tile without overlap
+    expect(result.scenes[1]!.sourceRange.start).toBe(result.scenes[0]!.sourceRange.end);
   });
 
   it("resolves multiple non-overlapping scenes", () => {

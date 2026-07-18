@@ -122,6 +122,46 @@ input {
   gap: 8px;
 }
 
+.fixture-banner {
+  grid-column: 1 / -1;
+  padding: 10px 14px;
+  margin-top: 8px;
+  border: 1px solid #e8c46a;
+  border-radius: var(--radius);
+  background: #fff8e6;
+  color: #8a6a00;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.flow-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.flow-step .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--muted);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: s2s-spin 0.7s linear infinite;
+}
+
+@keyframes s2s-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .btn {
   height: 32px;
   border: 1px solid var(--line-strong);
@@ -929,6 +969,7 @@ input {
 
 /* ---------- Search provider picker ---------- */
 
+
 .search-provider {
   display: flex;
   align-items: center;
@@ -949,6 +990,129 @@ input {
   background: var(--panel);
   color: var(--ink);
   font-size: 13px;
+}
+
+/* ---------- Landing view ---------- */
+
+.landing {
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 0 16px;
+}
+
+.landing-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.landing-header h1 {
+  margin: 8px 0 4px;
+}
+
+.landing-header p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.landing-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.file-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.script-input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.title-input {
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+/* ---------- Settings panel ---------- */
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.settings-modal {
+  background: var(--panel);
+  border-radius: 12px;
+  width: min(480px, 90vw);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 20px;
+}
+
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px;
+}
+
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-body label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.settings-body input,
+.settings-body select {
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.settings-saved {
+  color: green;
+  font-size: 12px;
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 8px;
 }
 
 /* ---------- Responsive ---------- */

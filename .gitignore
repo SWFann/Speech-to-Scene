@@ -13,6 +13,10 @@ logs/
 **/assets/*
 !**/assets/.gitkeep
 
+# Workspace: user projects + API key settings (never commit secrets)
+workspace/
+.s2s/
+
 web/dist/
 
 .DS_Store

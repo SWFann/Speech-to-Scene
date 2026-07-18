@@ -1,7 +1,7 @@
 /**
  * updateScene use case.
  *
- * Partially updates a scene's visualPlan fields and/or review note.
+ * Partially updates a scene's visualPlan fields.
  *
  * Design rules:
  * 1. Input is `unknown`; validated with a strict Zod schema before any work.
@@ -13,20 +13,13 @@
  *    - scene.visualPlan.rationale
  *    - scene.visualPlan.preferredMedia
  *    - scene.visualPlan.visualKeywords
- *    - scene.review.note
  * 5. visualPlan patch is merged, not overwritten — omitted fields are preserved.
- * 6. reviewNote:
- *    - string → sets review.note on the current review decision
- *    - null   → removes review.note
- *    - omitted → unchanged
- * 7. If the effective decision (after merge) is "stock_asset" and the scene
- *    has no enabled query, throws ProjectConflictError before saving.
- * 8. Updates project.updatedAt.
- * 9. Re-validates the full project with SpeechToSceneProjectSchema.
- * 10. Saves through repository.save() — exactly one save call.
- * 11. Does not modify scene order, sourceAnchor, sourceRange, text, search,
- *     candidates, selection, or localAsset.
- * 12. Does not modify other scenes.
+ * 6. Updates project.updatedAt.
+ * 7. Re-validates the full project with SpeechToSceneProjectSchema.
+ * 8. Saves through repository.save() — exactly one save call.
+ * 9. Does not modify scene order, sourceAnchor, sourceRange, text, search,
+ *     or candidates.
+ * 10. Does not modify other scenes.
  */
 
 import { z } from "zod";
@@ -39,7 +32,6 @@ import { VisualDecisionSchema } from "../domain/scene-schema.js";
 import {
   ProjectValidationError,
   SceneNotFoundError,
-  ProjectConflictError,
 } from "../shared/errors.js";
 
 // ---------------------------------------------------------------------------
@@ -84,22 +76,16 @@ const VisualPlanPatchSchema = z.strictObject({
 });
 
 /**
- * Patch for a scene update. At least one of `visualPlan` or `reviewNote` must
- * be present.
+ * Patch for a scene update. `visualPlan` must be present.
  *
  * - `visualPlan`: partial merge into the existing visualPlan.
- * - `reviewNote`:
- *   - string → set review.note
- *   - null   → remove review.note
- *   - omitted → unchanged
  */
 const ScenePatchSchema = z
   .strictObject({
     visualPlan: VisualPlanPatchSchema.optional(),
-    reviewNote: z.union([BoundedTextSchema, z.null()]).optional(),
   })
-  .refine((patch) => patch.visualPlan !== undefined || patch.reviewNote !== undefined, {
-    message: "patch 必须至少包含 visualPlan 或 reviewNote",
+  .refine((patch) => patch.visualPlan !== undefined, {
+    message: "patch 必须包含 visualPlan",
   });
 
 /**
@@ -134,14 +120,13 @@ export interface UpdateSceneDeps {
 // ---------------------------------------------------------------------------
 
 /**
- * Partially updates a scene's visualPlan and/or review note.
+ * Partially updates a scene's visualPlan.
  *
  * @param input - Unknown input, validated with Zod before use.
  * @param deps - Repository and optional clock.
  * @returns The updated, validated SpeechToSceneProject.
  * @throws {z.ZodError} If input fails schema validation.
  * @throws {SceneNotFoundError} If the sceneId does not exist in the project.
- * @throws {ProjectConflictError} If decision is stock_asset but no enabled query exists.
  * @throws {ProjectValidationError} If the updated project fails schema validation.
  * @throws Whatever repository.load() or repository.save() throws (not swallowed).
  */
@@ -174,36 +159,11 @@ export async function updateScene(
     } as typeof scene.visualPlan;
   }
 
-  // 6. Apply reviewNote
-  if (patch.reviewNote !== undefined) {
-    if (patch.reviewNote === null) {
-      // Remove note from the current review decision
-      const reviewCopy: Record<string, unknown> = { ...scene.review };
-      delete reviewCopy["note"];
-      scene.review = reviewCopy as unknown as typeof scene.review;
-    } else {
-      // Set note on the current review decision
-      scene.review = { ...scene.review, note: patch.reviewNote };
-    }
-  }
-
-  // 7. Business rule: stock_asset requires at least one enabled query
-  //    Checked before schema validation to give a clear, specific error.
-  if (scene.visualPlan.decision === "stock_asset") {
-    const hasEnabledQuery = scene.search.queries.some((q) => q.enabled);
-    if (!hasEnabledQuery) {
-      throw new ProjectConflictError(
-        "stock_asset scene requires at least one enabled search query",
-        "该场景决定为 stock_asset，但没有任何启用的搜索查询，请先添加搜索查询",
-      );
-    }
-  }
-
-  // 8. Update project.updatedAt
+  // 6. Update project.updatedAt
   const now = deps.now?.() ?? new Date();
   updated.project.updatedAt = now.toISOString();
 
-  // 9. Re-validate the full project with the top-level schema
+  // 7. Re-validate the full project with the top-level schema
   let validated: SpeechToSceneProject;
   try {
     validated = SpeechToSceneProjectSchema.parse(updated);
@@ -220,7 +180,7 @@ export async function updateScene(
     throw error;
   }
 
-  // 10. Save through repository — exactly one save call
+  // 8. Save through repository — exactly one save call
   await deps.repository.save(projectRoot, validated);
 
   return validated;

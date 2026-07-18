@@ -237,7 +237,6 @@ describe("planProject", () => {
             visualKeywords: ["test"],
           },
           search: { queries: [], candidates: [] },
-          review: { kind: "pending" },
         },
       ],
     };

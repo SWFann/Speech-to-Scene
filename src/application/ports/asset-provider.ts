@@ -48,11 +48,17 @@ export interface RightsFilterResult {
 }
 
 /**
- * Asset candidate returned by a provider.
+ * Asset candidate returned by a provider (asset-kind only).
  *
- * Every candidate must satisfy the domain AssetCandidateSchema after mapping.
+ * Providers only ever return `kind: "asset"` candidates. Link-kind candidates
+ * ("search link cards" for platforms without an API) are generated separately
+ * by a `LinkSuggestionGenerator`, not by asset providers.
+ *
+ * Every candidate must satisfy the domain `AssetCandidateAssetSchema` after
+ * mapping.
  */
 export interface AssetCandidate {
+  readonly kind: "asset";
   readonly id: string;
   readonly provider: AssetProviderSnapshot;
   readonly providerAssetId: string;

@@ -1,10 +1,12 @@
 /**
  * `s2s search` command handler.
  *
- * Searches for assets for planned scenes in a project using the specified provider.
+ * Searches for assets for planned scenes in a project using the specified
+ * provider(s). Multiple providers may be aggregated by passing a
+ * comma-separated `--provider` list (e.g. `--provider fixture,pexels`).
  *
  * Usage:
- *   s2s search <project-directory> [--provider fixture|pexels] [--scene <scene-id>] [--refresh] [--limit <n>] [--json] [--dry-run]
+ *   s2s search <project-directory> [--provider fixture|pexels|pixabay|unsplash|openverse[,...]] [--scene <scene-id>] [--refresh] [--limit <n>] [--json] [--dry-run]
  */
 
 import { Command } from "commander";
@@ -14,6 +16,7 @@ import { formatError, formatUnexpectedError } from "../error-reporter.js";
 import { AppError, ProjectNotPlannedError } from "../../shared/errors.js";
 import { readEnv } from "../../infrastructure/env.js";
 import { FileSearchCache } from "../../infrastructure/file-search-cache.js";
+import { DefaultLinkSuggestionGenerator } from "../../infrastructure/link-suggestion-generator.js";
 import {
   searchProjectAssets,
   type SearchProjectAssetsInput,
@@ -32,6 +35,15 @@ export interface SearchCommandOptions {
   json: boolean;
   dryRun: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Provider names recognised by the search command.
+ */
+const KNOWN_PROVIDERS = ["fixture", "pexels", "pixabay", "unsplash", "openverse"] as const;
 
 // ---------------------------------------------------------------------------
 // Human-readable output
@@ -96,7 +108,11 @@ export function createSearchCommand(ctx: CommandContext): Command {
   command
     .description("Search for assets for all planned scenes")
     .argument("<project-directory>", "Path to the project directory")
-    .option("--provider <name>", "Asset provider (fixture or pexels)", "fixture")
+    .option(
+      "--provider <names>",
+      "Asset provider(s), comma-separated (fixture, pexels, pixabay, unsplash, openverse)",
+      "fixture",
+    )
     .option("--scene <scene-id>", "Search only a specific scene")
     .option("--refresh", "Ignore cache and re-search")
     .option("--limit <number>", "Maximum assets per query", "10")
@@ -104,12 +120,25 @@ export function createSearchCommand(ctx: CommandContext): Command {
     .option("--dry-run", "Preview search without modifying project")
     .action(async (projectDirectory: string, options: SearchCommandOptions) => {
       try {
-        // Validate options
-        const validProviders = ["fixture", "pexels"];
-        if (!validProviders.includes(options.provider)) {
+        // Parse comma-separated provider list
+        const providers = options.provider
+          .split(",")
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0);
+
+        if (providers.length === 0) {
           throw new ProjectNotPlannedError(
-            `Unknown provider: ${options.provider}. Valid options: ${validProviders.join(", ")}`,
+            `No provider specified. Valid options: ${KNOWN_PROVIDERS.join(", ")}`,
           );
+        }
+
+        // Validate each provider name
+        for (const name of providers) {
+          if (!KNOWN_PROVIDERS.includes(name as (typeof KNOWN_PROVIDERS)[number])) {
+            throw new ProjectNotPlannedError(
+              `Unknown provider: ${name}. Valid options: ${KNOWN_PROVIDERS.join(", ")}`,
+            );
+          }
         }
 
         const limit = Number.parseInt(options.limit, 10);
@@ -120,36 +149,25 @@ export function createSearchCommand(ctx: CommandContext): Command {
         // Read environment configuration
         const env = readEnv();
 
-        // Create asset provider
-        const provider = await createSearchProvider(options.provider, env.assetProvider);
+        // Perform search using the multi-source aggregation use case
+        const searchInput: SearchProjectAssetsInput = {
+          projectRoot: projectDirectory.replace(/\/$/, ""),
+          providers,
+          maxAssetsPerQuery: limit,
+          ...(options.scene !== undefined ? { sceneId: options.scene } : {}),
+          refresh: options.refresh,
+          dryRun: options.dryRun,
+        };
 
-        // Create cache inside project directory: <projectRoot>/cache/search/<provider>
-        const resolvedProjectDir = projectDirectory.replace(/\/$/, "");
-        const cacheDir = getSearchCacheDir(resolvedProjectDir, options.provider);
-        const cache = new FileSearchCache({ cacheDir });
-
-        // Get current time
-        const now: () => Date = () => new Date();
-
-        // Perform search
-        const searchInput: SearchProjectAssetsInput = options.scene
-          ? {
-              projectRoot: resolvedProjectDir,
-              provider: options.provider,
-              maxAssetsPerQuery: limit,
-              sceneId: options.scene,
-              refresh: options.refresh,
-              dryRun: options.dryRun,
-            }
-          : {
-              projectRoot: resolvedProjectDir,
-              provider: options.provider,
-              maxAssetsPerQuery: limit,
-              refresh: options.refresh,
-              dryRun: options.dryRun,
-            };
-
-        const result = await searchProjectAssets(searchInput, ctx.repository, provider, cache, now);
+        const result = await searchProjectAssets(searchInput, {
+          repository: ctx.repository,
+          createProvider: async (providerName: string) =>
+            createSearchProvider(providerName, env.assetProvider),
+          createCache: (projectRoot: string, providerName: string) =>
+            new FileSearchCache({ cacheDir: getSearchCacheDir(projectRoot, providerName) }),
+          linkGenerator: new DefaultLinkSuggestionGenerator(),
+          now: () => new Date(),
+        });
 
         // Output result
         if (options.json) {

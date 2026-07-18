@@ -40,15 +40,14 @@ const MAX_HUMAN_ISSUES = 5;
 // ---------------------------------------------------------------------------
 
 function formatHumanOutput(view: ProjectStatusView, validation: ValidateProjectResult): string {
-  const processed = view.review.totalScenes - view.review.pending;
+  const searched = view.search.candidatesReady;
   const lines = [
     `项目：${view.project.title}`,
     `Schema：${view.schemaVersion}`,
     `状态：${view.status}`,
     `文稿：${view.source.path}`,
     `场景：${view.scenes.total}`,
-    `审阅：${processed}/${view.review.totalScenes} 已处理`,
-    `本地素材：${view.review.withLocalAsset}`,
+    `搜索：${searched}/${view.search.totalScenes} 已搜索`,
     `Validate：${validation.errorCount} errors, ${validation.warningCount} warnings`,
     `更新时间：${view.updatedAt}`,
   ];

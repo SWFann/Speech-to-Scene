@@ -232,15 +232,6 @@ function blockIdsBetween(
   return selected.map((block) => block.id);
 }
 
-/**
- * Checks for overlap with previously resolved scenes.
- */
-function checkOverlap(start: number, end: number, previousEnd: number, sceneIndex: number): void {
-  if (start < previousEnd) {
-    throw new OverlappingSceneError(sceneIndex, previousEnd, start);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -325,11 +316,20 @@ export function resolveAnchors(
     }
 
     // Ensure start <= end
-    const rangeStart = startGlobal.start;
+    let rangeStart = startGlobal.start;
     const rangeEnd = Math.max(startGlobal.end, endGlobal.end);
 
-    // Check for overlap with previous scene
-    checkOverlap(rangeStart, rangeEnd, previousEnd, i);
+    // Overlap handling: LLM planners sometimes produce scenes whose start
+    // quote resolves to a position inside the previous scene. Clamp the start
+    // to previousEnd so scenes tile without overlap (auto-repair). Only when
+    // the scene is entirely within the previous scene (rangeEnd <= previousEnd)
+    // do we reject it as a hard error.
+    if (rangeStart < previousEnd) {
+      if (rangeEnd <= previousEnd) {
+        throw new OverlappingSceneError(i, previousEnd, rangeStart);
+      }
+      rangeStart = previousEnd;
+    }
 
     // Extract scene text
     const text = sourceBlocks.rawText.slice(rangeStart, rangeEnd);

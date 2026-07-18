@@ -2,19 +2,22 @@
  * getReviewProject use case.
  *
  * Pure read-only operation that loads a project and maps it into a
- * UI-safe ReviewProjectView DTO for the future React Review Board.
+ * UI-safe ReviewProjectView DTO for the React Review Board.
  *
  * Design rules:
  * 1. Loads project via ProjectRepository.load() — never touches fs directly.
  * 2. Returns a deep-mapped DTO, not the raw persisted object.
  * 3. Never returns absolute paths, tokens, API keys, or cache paths.
- * 4. Local asset paths remain as schema-validated project-relative paths.
- * 5. Remote URLs (thumbnail, preview, sourcePageUrl) are preserved as-is.
- * 6. Rights and evidence metadata are fully preserved.
- * 7. Derives per-scene and project-level status via pure domain functions.
- * 8. Output is deterministic — no Date.now(), no random ordering.
- * 9. Does not modify the repository's returned object (deep-clones via mapping).
- * 10. Does not call repository.save().
+ * 4. Remote URLs (thumbnail, preview, sourcePageUrl, searchUrl) are preserved as-is.
+ * 5. Rights and evidence metadata are fully preserved (asset-kind candidates).
+ * 6. Derives per-scene and project-level status via pure domain functions.
+ * 7. Output is deterministic — no Date.now(), no random ordering.
+ * 8. Does not modify the repository's returned object (deep-clones via mapping).
+ * 9. Does not call repository.save().
+ *
+ * Phase 1 redesign: no review decision or local asset is mapped (the review
+ * state machine has been removed). Candidates are a discriminated union
+ * (asset | link).
  */
 
 import type { ProjectRepository } from "./ports/project-repository.js";
@@ -22,15 +25,12 @@ import type { SpeechToSceneProject } from "../domain/project-schema.js";
 import type { Scene } from "../domain/scene-schema.js";
 import type {
   AssetCandidate,
+  AssetCandidateAsset,
+  AssetCandidateLink,
   AssetRights,
   AssetProviderSnapshot,
   RightsEvidence,
 } from "../domain/asset-schema.js";
-import type {
-  ReviewDecision,
-  LocalAsset,
-  SelectedCandidateSnapshot,
-} from "../domain/scene-schema.js";
 import {
   getProjectStatus,
   type ProjectStatus,
@@ -83,10 +83,10 @@ export interface ReviewProviderSnapshotView {
 }
 
 /**
- * UI-safe view of an asset candidate.
- * All remote URLs are preserved. No local paths are included.
+ * UI-safe view of an asset-kind candidate (library result).
  */
-export interface ReviewAssetCandidateView {
+export interface ReviewAssetCandidateAssetView {
+  readonly kind: "asset";
   readonly id: string;
   readonly provider: ReviewProviderSnapshotView;
   readonly providerAssetId: string;
@@ -107,6 +107,27 @@ export interface ReviewAssetCandidateView {
   readonly matchedQueryId: string;
   readonly rank: number;
 }
+
+/**
+ * UI-safe view of a link-kind candidate ("search link card").
+ */
+export interface ReviewAssetCandidateLinkView {
+  readonly kind: "link";
+  readonly id: string;
+  readonly platform: "xiaohongshu" | "douyin" | "bilibili" | "youtube";
+  readonly searchUrl: string;
+  readonly keyword: string;
+  readonly retrievedAt: string;
+  readonly matchedQueryId: string;
+  readonly rank: number;
+}
+
+/**
+ * UI-safe view of an asset candidate (discriminated union).
+ */
+export type ReviewAssetCandidateView =
+  | ReviewAssetCandidateAssetView
+  | ReviewAssetCandidateLinkView;
 
 /**
  * UI-safe view of a search query.
@@ -131,59 +152,6 @@ export interface ReviewSceneSearchView {
   /** Derived: total candidate count. */
   readonly candidateCount: number;
 }
-
-/**
- * UI-safe view of a local asset.
- * `relativePath` is the schema-validated project-relative path (e.g., "assets/<scene-id>/file.png").
- * No absolute paths are ever returned.
- */
-export interface ReviewLocalAssetView {
-  readonly relativePath: string;
-  readonly originalFileName: string | null;
-  readonly mimeType: string;
-  readonly sizeBytes: number;
-  readonly sha256: string;
-  readonly importedAt: string;
-  readonly provenance:
-    | { readonly kind: "selected_candidate"; readonly candidateId: string }
-    | { readonly kind: "user_owned"; readonly note?: string }
-    | {
-        readonly kind: "external";
-        readonly sourcePageUrl?: string;
-        readonly rights: ReviewAssetRightsView;
-        readonly note?: string;
-      };
-}
-
-/**
- * UI-safe view of a selected candidate snapshot.
- */
-export interface ReviewSelectedCandidateSnapshotView {
-  readonly selectedAt: string;
-  readonly candidate: ReviewAssetCandidateView;
-  readonly rightsAcknowledgement?: {
-    readonly acknowledgedAt: string;
-    readonly warningCodes: string[];
-  };
-}
-
-/**
- * UI-safe view of a review decision (discriminated union).
- */
-export type ReviewDecisionView =
-  | { readonly kind: "pending"; readonly note?: string }
-  | { readonly kind: "skipped"; readonly decidedAt: string; readonly note?: string }
-  | {
-      readonly kind: "candidate_selected";
-      readonly selection: ReviewSelectedCandidateSnapshotView;
-      readonly localAsset?: ReviewLocalAssetView;
-      readonly note?: string;
-    }
-  | {
-      readonly kind: "local_asset_attached";
-      readonly localAsset: ReviewLocalAssetView;
-      readonly note?: string;
-    };
 
 /**
  * UI-safe view of a scene's visual plan.
@@ -218,8 +186,7 @@ export interface ReviewSceneView {
   readonly narrativeRole: string;
   readonly visualPlan: ReviewVisualPlanView;
   readonly search: ReviewSceneSearchView;
-  readonly review: ReviewDecisionView;
-  /** Derived: scene review status. */
+  /** Derived: scene search status. */
   readonly status: SceneStatusValue;
 }
 
@@ -282,8 +249,8 @@ export interface ReviewProjectView {
   readonly status: "created" | "planned";
   /** Derived: total scene count. */
   readonly sceneCount: number;
-  /** Derived: scenes with non-pending status. */
-  readonly producingSceneCount: number;
+  /** Derived: scenes that have been searched (have candidates). */
+  readonly searchedSceneCount: number;
   /** Derived: last generation timestamp, null if no generation. */
   readonly lastGenerationAt: string | null;
   /** Derived: per-scene status summary. */
@@ -336,8 +303,9 @@ function mapProviderSnapshot(provider: AssetProviderSnapshot): ReviewProviderSna
   };
 }
 
-function mapCandidate(candidate: AssetCandidate): ReviewAssetCandidateView {
+function mapAssetCandidate(candidate: AssetCandidateAsset): ReviewAssetCandidateAssetView {
   return {
+    kind: "asset",
     id: candidate.id,
     provider: mapProviderSnapshot(candidate.provider),
     providerAssetId: candidate.providerAssetId,
@@ -364,6 +332,26 @@ function mapCandidate(candidate: AssetCandidate): ReviewAssetCandidateView {
   };
 }
 
+function mapLinkCandidate(candidate: AssetCandidateLink): ReviewAssetCandidateLinkView {
+  return {
+    kind: "link",
+    id: candidate.id,
+    platform: candidate.platform,
+    searchUrl: candidate.searchUrl,
+    keyword: candidate.keyword,
+    retrievedAt: candidate.retrievedAt,
+    matchedQueryId: candidate.matchedQueryId,
+    rank: candidate.rank,
+  };
+}
+
+function mapCandidate(candidate: AssetCandidate): ReviewAssetCandidateView {
+  if (candidate.kind === "asset") {
+    return mapAssetCandidate(candidate);
+  }
+  return mapLinkCandidate(candidate);
+}
+
 function mapQuery(query: {
   id: string;
   language: "zh" | "en";
@@ -378,97 +366,6 @@ function mapQuery(query: {
     purpose: query.purpose,
     enabled: query.enabled,
   };
-}
-
-function mapLocalAsset(asset: LocalAsset): ReviewLocalAssetView {
-  const base: ReviewLocalAssetView = {
-    relativePath: asset.relativePath,
-    originalFileName: safeFileName(asset.originalFileName),
-    mimeType: asset.mimeType,
-    sizeBytes: asset.sizeBytes,
-    sha256: asset.sha256,
-    importedAt: asset.importedAt,
-    provenance: mapProvenance(asset),
-  };
-  return base;
-}
-
-function mapProvenance(asset: LocalAsset): ReviewLocalAssetView["provenance"] {
-  switch (asset.provenance.kind) {
-    case "selected_candidate":
-      return { kind: "selected_candidate", candidateId: asset.provenance.candidateId };
-    case "user_owned":
-      return asset.provenance.note !== undefined
-        ? { kind: "user_owned", note: asset.provenance.note }
-        : { kind: "user_owned" };
-    case "external": {
-      return {
-        kind: "external" as const,
-        rights: mapRights(asset.provenance.rights),
-        ...(asset.provenance.sourcePageUrl !== undefined
-          ? { sourcePageUrl: asset.provenance.sourcePageUrl }
-          : {}),
-        ...(asset.provenance.note !== undefined ? { note: asset.provenance.note } : {}),
-      };
-    }
-    default: {
-      const _exhaustive: never = asset.provenance;
-      return _exhaustive;
-    }
-  }
-}
-
-function mapSelectedSnapshot(
-  snapshot: SelectedCandidateSnapshot,
-): ReviewSelectedCandidateSnapshotView {
-  const view: ReviewSelectedCandidateSnapshotView = {
-    selectedAt: snapshot.selectedAt,
-    candidate: mapCandidate(snapshot.candidate),
-  };
-  if (snapshot.rightsAcknowledgement !== undefined) {
-    return {
-      ...view,
-      rightsAcknowledgement: {
-        acknowledgedAt: snapshot.rightsAcknowledgement.acknowledgedAt,
-        warningCodes: [...snapshot.rightsAcknowledgement.warningCodes],
-      },
-    };
-  }
-  return view;
-}
-
-function mapReviewDecision(review: ReviewDecision): ReviewDecisionView {
-  switch (review.kind) {
-    case "pending":
-      return review.note !== undefined
-        ? { kind: "pending", note: review.note }
-        : { kind: "pending" };
-    case "skipped":
-      return review.note !== undefined
-        ? { kind: "skipped", decidedAt: review.decidedAt, note: review.note }
-        : { kind: "skipped", decidedAt: review.decidedAt };
-    case "candidate_selected": {
-      return {
-        kind: "candidate_selected" as const,
-        selection: mapSelectedSnapshot(review.selection),
-        ...(review.localAsset !== undefined
-          ? { localAsset: mapLocalAsset(review.localAsset) }
-          : {}),
-        ...(review.note !== undefined ? { note: review.note } : {}),
-      };
-    }
-    case "local_asset_attached": {
-      return {
-        kind: "local_asset_attached" as const,
-        localAsset: mapLocalAsset(review.localAsset),
-        ...(review.note !== undefined ? { note: review.note } : {}),
-      };
-    }
-    default: {
-      const _exhaustive: never = review;
-      return _exhaustive;
-    }
-  }
 }
 
 function mapScene(scene: Scene, status: SceneStatusValue): ReviewSceneView {
@@ -501,7 +398,6 @@ function mapScene(scene: Scene, status: SceneStatusValue): ReviewSceneView {
       enabledQueryCount,
       candidateCount: scene.search.candidates.length,
     },
-    review: mapReviewDecision(scene.review),
     status,
   };
 }
@@ -581,7 +477,7 @@ export async function getReviewProject(
     scenes,
     status: status.status,
     sceneCount: status.sceneCount,
-    producingSceneCount: status.producingSceneCount,
+    searchedSceneCount: status.searchedSceneCount,
     lastGenerationAt: status.lastGenerationAt,
     sceneStatuses: status.scenes.map((ss) => ({
       sceneId: ss.sceneId,

@@ -128,7 +128,65 @@ function parseAndValidateProject(bytes: Uint8Array): SpeechToSceneProject {
     throw new UnsupportedSchemaVersionError(schemaVersion);
   }
 
-  return validateProject(raw);
+  // Phase 1 migration: strip legacy review/localAsset fields and add kind to
+  // old candidates before schema validation. This lets existing project files
+  // (created before the material-discovery redesign) continue to load.
+  const migrated = migrateLegacyProject(raw);
+
+  return validateProject(migrated);
+}
+
+/**
+ * Migrates a legacy project object to the Phase 1 schema shape before Zod
+ * validation:
+ * 1. Removes `review` from each scene (review state machine removed).
+ * 2. Removes any `localAsset` references.
+ * 3. Adds `kind: "asset"` to candidates missing the discriminator (old
+ *    candidates predate the discriminated union).
+ *
+ * This is a best-effort, additive-only transform. Unknown extra keys are
+ * ignored by `.strictObject()` during validation (stripped on save).
+ */
+function migrateLegacyProject(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return raw;
+  }
+  const obj = raw as Record<string, unknown>;
+  const scenes = obj.scenes as unknown[];
+  if (!Array.isArray(scenes)) {
+    return raw;
+  }
+
+  const migratedScenes = scenes.map((scene: unknown) => {
+    if (typeof scene !== "object" || scene === null || Array.isArray(scene)) {
+      return scene;
+    }
+    const s = { ...scene } as Record<string, unknown>;
+    // Remove legacy review field
+    delete s["review"];
+    // Normalize candidates: add kind: "asset" to any missing the discriminator
+    const search = s.search;
+    if (typeof search === "object" && search !== null && !Array.isArray(search)) {
+      const searchObj = { ...(search as Record<string, unknown>) };
+      const candidates = searchObj.candidates;
+      if (Array.isArray(candidates)) {
+        searchObj.candidates = candidates.map((candidate: unknown) => {
+          if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+            return candidate;
+          }
+          const c = candidate as Record<string, unknown>;
+          if (c.kind === undefined) {
+            return { ...c, kind: "asset" };
+          }
+          return c;
+        });
+      }
+      s.search = searchObj;
+    }
+    return s;
+  });
+
+  return { ...obj, scenes: migratedScenes };
 }
 
 // ---------------------------------------------------------------------------

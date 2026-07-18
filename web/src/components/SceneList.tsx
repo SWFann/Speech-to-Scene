@@ -9,15 +9,9 @@ interface SceneListProps {
 function statusLabel(status: SceneStatusValue): string {
   switch (status) {
     case "pending":
-      return "待处理";
+      return "待搜索";
     case "candidates_ready":
-      return "候选就绪";
-    case "selected":
-      return "已选择";
-    case "skipped":
-      return "已跳过";
-    case "local_attached":
-      return "已关联";
+      return "已搜索";
     default:
       return status;
   }
@@ -25,13 +19,8 @@ function statusLabel(status: SceneStatusValue): string {
 
 function statusTagClass(status: SceneStatusValue): string {
   switch (status) {
-    case "selected":
-    case "local_attached":
-      return "tag green";
     case "candidates_ready":
       return "tag blue";
-    case "skipped":
-      return "tag warn";
     default:
       return "tag";
   }
@@ -50,10 +39,7 @@ export function SceneList({ scenes, activeSceneId, onSelect }: SceneListProps): 
       <div className="scene-list">
         {scenes.map((scene) => {
           const isActive = scene.id === activeSceneId;
-          const isDone =
-            scene.status === "selected" ||
-            scene.status === "local_attached" ||
-            scene.status === "skipped";
+          const isDone = scene.status === "candidates_ready";
           return (
             <article
               key={scene.id}

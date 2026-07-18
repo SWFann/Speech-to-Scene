@@ -1,19 +1,21 @@
 /**
  * Unit tests for the updateScene use case.
  *
+ * Phase 1 material-discovery redesign: the review state machine (reviewNote,
+ * selection, skip, local-asset) has been removed. The patch now only accepts
+ * `visualPlan`. stock_asset no longer gates search.
+ *
  * Coverage:
  *  1.  Successfully updates a single visualPlan field
  *  2.  Successfully merges multiple visualPlan fields
- *  3.  Successfully writes a review note
- *  4.  reviewNote null removes the note
- *  5.  Non-existent sceneId throws SceneNotFoundError
- *  6.  Unknown patch field is rejected
- *  7.  Non-whitelist fields (id, order, text, etc.) cannot be modified
- *  8.  stock_asset with no enabled query is rejected
- *  9.  repository.save is called exactly once
- *  10. Saved object passes SpeechToSceneProjectSchema
- *  11. Other scenes are not modified
- *  12. repository.load error propagates unchanged
+ *  3.  Non-existent sceneId throws SceneNotFoundError
+ *  4.  Unknown patch field is rejected
+ *  5.  Non-whitelist fields (id, order, text, etc.) cannot be modified
+ *  6.  stock_asset with no enabled query is accepted (gating removed)
+ *  7.  repository.save is called exactly once
+ *  8.  Saved object passes SpeechToSceneProjectSchema
+ *  9.  Other scenes are not modified
+ *  10. repository.load error propagates unchanged
  */
 
 import { describe, it, expect } from "vitest";
@@ -23,7 +25,7 @@ import { updateScene, type UpdateSceneDeps } from "../../src/application/update-
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
 import { SpeechToSceneProjectSchema } from "../../src/domain/project-schema.js";
-import { SceneNotFoundError, ProjectConflictError } from "../../src/shared/errors.js";
+import { SceneNotFoundError } from "../../src/shared/errors.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -101,7 +103,6 @@ function makeTestProject(): SpeechToSceneProject {
           candidates: [],
           lastSearchedAt: "2026-07-14T10:00:00.000Z",
         },
-        review: { kind: "pending" },
       },
       {
         id: "scene-002",
@@ -126,7 +127,6 @@ function makeTestProject(): SpeechToSceneProject {
           queries: [],
           candidates: [],
         },
-        review: { kind: "pending", note: "Existing note" },
       },
     ],
   });
@@ -229,47 +229,7 @@ describe("updateScene", () => {
     expect(scene.visualPlan.rationale).toBe("Need stock photo");
   });
 
-  it("3. successfully writes a review note", async () => {
-    const repo = new TestRepository();
-    repo.setProject(makeTestProject());
-
-    const result = await updateScene(
-      {
-        projectRoot: "/test/project",
-        sceneId: "scene-001",
-        patch: {
-          reviewNote: "This is a review note",
-        },
-      },
-      makeDeps(repo),
-    );
-
-    const scene = result.scenes[0]!;
-    expect(scene.review).toMatchObject({ kind: "pending", note: "This is a review note" });
-  });
-
-  it("4. reviewNote null removes the note", async () => {
-    const repo = new TestRepository();
-    repo.setProject(makeTestProject());
-
-    // scene-002 has a note "Existing note"
-    const result = await updateScene(
-      {
-        projectRoot: "/test/project",
-        sceneId: "scene-002",
-        patch: {
-          reviewNote: null,
-        },
-      },
-      makeDeps(repo),
-    );
-
-    const scene = result.scenes[1]!;
-    expect(scene.review.kind).toBe("pending");
-    expect(scene.review).not.toHaveProperty("note");
-  });
-
-  it("5. non-existent sceneId throws SceneNotFoundError", async () => {
+  it("3. non-existent sceneId throws SceneNotFoundError", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -290,7 +250,7 @@ describe("updateScene", () => {
     expect(repo.saveCount).toBe(0);
   });
 
-  it("6. unknown patch field is rejected", async () => {
+  it("4. unknown patch field is rejected", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -311,7 +271,7 @@ describe("updateScene", () => {
     expect(repo.saveCount).toBe(0);
   });
 
-  it("7. non-whitelist fields (id, order, text, sourceRange) cannot be modified via patch", async () => {
+  it("5. non-whitelist fields (id, order, text, sourceRange) cannot be modified via patch", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -347,7 +307,7 @@ describe("updateScene", () => {
     expect(repo.saveCount).toBe(0);
   });
 
-  it("8. stock_asset with no enabled query is rejected", async () => {
+  it("6. stock_asset with no enabled query is accepted (gating removed)", async () => {
     const repo = new TestRepository();
     const project = makeTestProject();
     // Remove the enabled query from scene-001
@@ -355,23 +315,23 @@ describe("updateScene", () => {
     project.scenes[0]!.search.lastSearchedAt = undefined;
     repo.setProject(project);
 
-    await expect(
-      updateScene(
-        {
-          projectRoot: "/test/project",
-          sceneId: "scene-001",
-          patch: {
-            visualPlan: { rationale: "still stock_asset" },
-          },
+    // Phase 1 redesign: stock_asset no longer gates search, so this should succeed
+    const result = await updateScene(
+      {
+        projectRoot: "/test/project",
+        sceneId: "scene-001",
+        patch: {
+          visualPlan: { rationale: "still stock_asset" },
         },
-        makeDeps(repo),
-      ),
-    ).rejects.toThrow(ProjectConflictError);
+      },
+      makeDeps(repo),
+    );
 
-    expect(repo.saveCount).toBe(0);
+    expect(result.scenes[0]!.visualPlan.rationale).toBe("still stock_asset");
+    expect(repo.saveCount).toBe(1);
   });
 
-  it("9. repository.save is called exactly once", async () => {
+  it("7. repository.save is called exactly once", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -389,7 +349,7 @@ describe("updateScene", () => {
     expect(repo.saveCount).toBe(1);
   });
 
-  it("10. saved object passes SpeechToSceneProjectSchema", async () => {
+  it("8. saved object passes SpeechToSceneProjectSchema", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -399,7 +359,6 @@ describe("updateScene", () => {
         sceneId: "scene-001",
         patch: {
           visualPlan: { decision: "title_card", rationale: "changed" },
-          reviewNote: "a note",
         },
       },
       makeDeps(repo),
@@ -411,7 +370,7 @@ describe("updateScene", () => {
     expect(parsed.scenes[0]!.visualPlan.decision).toBe("title_card");
   });
 
-  it("11. other scenes are not modified", async () => {
+  it("9. other scenes are not modified", async () => {
     const repo = new TestRepository();
     const original = makeTestProject();
     repo.setProject(original);
@@ -422,7 +381,6 @@ describe("updateScene", () => {
         sceneId: "scene-001",
         patch: {
           visualPlan: { rationale: "new rationale" },
-          reviewNote: "new note",
         },
       },
       makeDeps(repo),
@@ -439,12 +397,11 @@ describe("updateScene", () => {
     expect(otherScene.narrativeRole).toBe(originalOther.narrativeRole);
     expect(otherScene.visualPlan).toEqual(originalOther.visualPlan);
     expect(otherScene.search).toEqual(originalOther.search);
-    expect(otherScene.review).toEqual(originalOther.review);
     expect(otherScene.sourceAnchor).toEqual(originalOther.sourceAnchor);
     expect(otherScene.sourceRange).toEqual(originalOther.sourceRange);
   });
 
-  it("12. repository.load error propagates unchanged", async () => {
+  it("10. repository.load error propagates unchanged", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
     const loadError = new Error("Disk I/O failure");
@@ -573,7 +530,7 @@ describe("updateScene", () => {
     ).rejects.toThrow();
   });
 
-  it("rejects patch with no visualPlan and no reviewNote", async () => {
+  it("rejects patch with no visualPlan", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -643,7 +600,7 @@ describe("updateScene", () => {
     expect(repo.saveCount).toBe(1);
   });
 
-  it("rejects note exceeding 2000 characters", async () => {
+  it("rejects rationale exceeding 2000 characters", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -652,14 +609,14 @@ describe("updateScene", () => {
         {
           projectRoot: "/test/project",
           sceneId: "scene-001",
-          patch: { reviewNote: "x".repeat(2001) },
+          patch: { visualPlan: { rationale: "x".repeat(2001) } },
         },
         makeDeps(repo),
       ),
     ).rejects.toThrow();
   });
 
-  it("rejects note with leading/trailing whitespace", async () => {
+  it("rejects rationale with leading/trailing whitespace", async () => {
     const repo = new TestRepository();
     repo.setProject(makeTestProject());
 
@@ -668,7 +625,7 @@ describe("updateScene", () => {
         {
           projectRoot: "/test/project",
           sceneId: "scene-001",
-          patch: { reviewNote: "  padded note  " },
+          patch: { visualPlan: { rationale: "  padded rationale  " } },
         },
         makeDeps(repo),
       ),

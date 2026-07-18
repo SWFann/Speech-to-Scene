@@ -9,6 +9,10 @@
  * M4-04B: PUT  /api/scenes/:sceneId/queries (session token + Origin required)
  * M4-05:  POST /api/scenes/:sceneId/search (session token + Origin required)
  *
+ * Phase 1 material-discovery redesign:
+ * - The selection / skip / local-asset routes have been removed.
+ * - Search bodies accept `providers` (array) instead of `provider` (enum).
+ *
  * Response utilities (applySecurityHeaders, sendError, sendSuccess, etc.)
  * are NOT defined here — they live in security/response-headers.ts and
  * json-response.ts. This file only defines routes and path matching.
@@ -20,19 +24,12 @@ import type { RouteDefinition } from "./review-types.js";
 import type { ReviewServerDependencies } from "./review-types.js";
 import { sendSuccess, sendError, sendInternalError } from "./json-response.js";
 import { parseJsonBody } from "./json-body.js";
-import {
-  parseMultipartUpload,
-  validateMagicBytes,
-  sendMultipartError,
-  type MultipartParseResult,
-} from "./multipart-upload.js";
-import { safeFileName } from "../application/safe-filename.js";
 import type { ServerResponse } from "node:http";
 import { ERROR_INVALID_REQUEST } from "./http-errors.js";
-import { IdSchema, NonEmptyTrimmedStringSchema } from "../domain/schema-primitives.js";
+import { IdSchema } from "../domain/schema-primitives.js";
 
 // ---------------------------------------------------------------------------
-// Request body schemas (M4-04BF)
+// Request body schemas
 // ---------------------------------------------------------------------------
 
 /**
@@ -46,12 +43,23 @@ const PutQueriesBodySchema = z.strictObject({
 });
 
 /**
+ * Known asset provider names accepted by search endpoints.
+ */
+const KNOWN_SEARCH_PROVIDERS = [
+  "fixture",
+  "pexels",
+  "pixabay",
+  "unsplash",
+  "openverse",
+] as const;
+
+/**
  * Strict schema for POST /api/scenes/:sceneId/search body.
  *
  * Uses z.strictObject to reject any unknown top-level fields.
- * Only `{ provider, refresh, limit }` is accepted.
+ * Only `{ providers, refresh, limit }` is accepted.
  *
- * - provider: must be "fixture" or "pexels".
+ * - providers: optional array of provider names. Defaults to ["fixture"].
  * - refresh: optional boolean, defaults to false.
  * - limit: optional integer 1..50, defaults to 12.
  *
@@ -59,49 +67,9 @@ const PutQueriesBodySchema = z.strictObject({
  * or provider configuration — those are server-controlled only.
  */
 const SearchBodySchema = z.strictObject({
-  provider: z.enum(["fixture", "pexels"]),
+  providers: z.array(z.enum(KNOWN_SEARCH_PROVIDERS)).optional(),
   refresh: z.boolean().optional().default(false),
   limit: z.number().int().min(1).max(50).optional().default(12),
-});
-
-/**
- * Maximum length for the skip note.
- */
-const MAX_NOTE_LENGTH = 2000;
-
-/**
- * Strict schema for PUT /api/scenes/:sceneId/selection body.
- *
- * Uses z.strictObject to reject any unknown top-level fields.
- * Only `{ candidateId, rightsAcknowledged }` is accepted.
- *
- * - candidateId: must be a valid Id.
- * - rightsAcknowledged: optional boolean, defaults to false.
- *
- * No client-controlled field can override projectRoot, sceneId, or candidate —
- * those are server-controlled only.
- */
-const SelectionBodySchema = z.strictObject({
-  candidateId: IdSchema,
-  rightsAcknowledged: z.boolean().optional().default(false),
-});
-
-/**
- * Strict schema for PUT /api/scenes/:sceneId/skip body.
- *
- * Uses z.strictObject to reject any unknown top-level fields.
- * Only `{ note }` is accepted.
- *
- * - note: optional non-empty trimmed string, max 2000 chars.
- *
- * No client-controlled field can override projectRoot or sceneId —
- * those are server-controlled only.
- */
-const SkipBodySchema = z.strictObject({
-  note: NonEmptyTrimmedStringSchema.refine(
-    (s) => s.length <= MAX_NOTE_LENGTH,
-    `note 最长 ${MAX_NOTE_LENGTH} 字符`,
-  ).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -144,6 +112,55 @@ function validateSceneId(raw: string): string | null {
  *   This is needed because the port may be 0 at creation time (OS-assigned).
  * @param deps - Injected dependencies (repository, application use cases).
  */
+/**
+ * Strict schema for PUT /api/settings body.
+ *
+ * Only known fields are accepted; unknown top-level fields are rejected.
+ * Keys are optional strings (empty = unset).
+ */
+const SaveSettingsBodySchema = z.strictObject({
+  plannerProvider: z.enum(["fixture", "deepseek", "stepfun"]).optional(),
+  deepseekApiKey: z.string().min(1).optional(),
+  deepseekBaseUrl: z.string().url().optional(),
+  deepseekModel: z.string().min(1).optional(),
+  stepApiKey: z.string().min(1).optional(),
+  stepBaseUrl: z.string().url().optional(),
+  stepModel: z.string().min(1).optional(),
+  pexelsApiKey: z.string().min(1).optional(),
+  pexelsBaseUrl: z.string().url().optional(),
+  pexelsVideoBaseUrl: z.string().url().optional(),
+  pixabayApiKey: z.string().min(1).optional(),
+  unsplashApiKey: z.string().min(1).optional(),
+  openverseApiKey: z.string().min(1).optional(),
+});
+
+/** Body schema for POST /api/project/create. */
+const CreateProjectBodySchema = z.strictObject({
+  content: z.string().min(1),
+  fileName: z.string().min(1).optional(),
+  title: z.string().optional(),
+  language: z.enum(["zh-CN", "en-US"]).optional(),
+  aspectRatio: z.enum(["9:16", "16:9", "1:1"]).optional(),
+  style: z.enum(["knowledge", "story", "commentary"]).optional(),
+  intendedUse: z.enum(["commercial_capable", "noncommercial", "editorial"]).optional(),
+  willModify: z.boolean().optional(),
+  force: z.boolean().optional().default(false),
+});
+
+/** Body schema for POST /api/project/plan. */
+const PlanProjectBodySchema = z.strictObject({
+  provider: z.enum(["fixture", "deepseek", "stepfun"]),
+  maxScenes: z.number().int().min(1).max(50).optional().default(12),
+  force: z.boolean().optional().default(false),
+});
+
+/** Body schema for POST /api/project/search. */
+const SearchProjectBodySchema = z.strictObject({
+  providers: z.array(z.enum(KNOWN_SEARCH_PROVIDERS)).optional(),
+  refresh: z.boolean().optional().default(false),
+  limit: z.number().int().min(1).max(50).optional().default(12),
+});
+
 export function createRoutes(config: {
   readonly projectRoot: string;
   readonly host: string;
@@ -174,11 +191,179 @@ export function createRoutes(config: {
       updateScene,
       updateSceneQueries,
       searchSceneAssets,
-      selectCandidate,
-      skipScene,
-      attachLocalAsset,
-      assetWriter,
+      getSettings,
+      saveSettings,
+      createProjectFromContent,
+      planProject,
+      searchProjectAssets,
     } = config.deps;
+
+    // Settings routes: only register when getSettings/saveSettings are wired (E1)
+    if (getSettings && saveSettings) {
+      // GET /api/settings (desensitized view, no plaintext keys)
+      routes.push({
+        path: "/api/settings",
+        methods: ["GET"],
+        handler: async (_req, res) => {
+          try {
+            const view = await getSettings();
+            sendSuccess(res, 200, { settings: view });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+
+      // PUT /api/settings (persist API keys to workspace .s2s/settings.json)
+      routes.push({
+        path: "/api/settings",
+        methods: ["PUT"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = SaveSettingsBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid settings body");
+            return;
+          }
+          try {
+            const view = await saveSettings(parsed.data);
+            sendSuccess(res, 200, { settings: view });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
+
+    // Project lifecycle routes: create / plan / search (whole-project)
+    if (createProjectFromContent && planProject && searchProjectAssets) {
+      // POST /api/project/create — create project from uploaded text content
+      routes.push({
+        path: "/api/project/create",
+        methods: ["POST"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = CreateProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid project create body");
+            return;
+          }
+          try {
+            await createProjectFromContent({
+              projectDirectory: config.projectRoot,
+              content: new TextEncoder().encode(parsed.data.content),
+              originalFileName: parsed.data.fileName ?? "script.md",
+              title: parsed.data.title ?? "",
+              language: parsed.data.language ?? "zh-CN",
+              aspectRatio: parsed.data.aspectRatio ?? "9:16",
+              style: parsed.data.style ?? "knowledge",
+              intendedUse: parsed.data.intendedUse ?? "commercial_capable",
+              willModify: parsed.data.willModify ?? true,
+              force: parsed.data.force,
+            });
+            const project = await getReviewProject(config.projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+
+      // POST /api/project/plan — slice script into scenes via planner
+      routes.push({
+        path: "/api/project/plan",
+        methods: ["POST"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = PlanProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid plan body");
+            return;
+          }
+          try {
+            await planProject({
+              projectRoot: config.projectRoot,
+              provider: parsed.data.provider,
+              maxScenes: parsed.data.maxScenes,
+              force: parsed.data.force,
+              dryRun: false,
+            });
+            const project = await getReviewProject(config.projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+
+      // POST /api/project/search — search assets for all scenes
+      routes.push({
+        path: "/api/project/search",
+        methods: ["POST"],
+        handler: async (req, res) => {
+          const bodyResult = await parseJsonBody(req, res);
+          if (!bodyResult.success) {
+            sendError(
+              res,
+              bodyResult.statusCode,
+              bodyResult.code,
+              bodyResult.message,
+              bodyResult.hint ?? undefined,
+            );
+            return;
+          }
+          const parsed = SearchProjectBodySchema.safeParse(bodyResult.data);
+          if (!parsed.success) {
+            sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid search body");
+            return;
+          }
+          try {
+            await searchProjectAssets({
+              projectRoot: config.projectRoot,
+              ...(parsed.data.providers !== undefined
+                ? { providers: parsed.data.providers }
+                : {}),
+              maxAssetsPerQuery: parsed.data.limit,
+              refresh: parsed.data.refresh,
+            });
+            const project = await getReviewProject(config.projectRoot, repository);
+            sendSuccess(res, 200, { project });
+          } catch (error) {
+            mapMutationError(error, res);
+          }
+        },
+      });
+    }
 
     // GET /api/project (requires session token)
     routes.push({
@@ -232,8 +417,7 @@ export function createRoutes(config: {
           typeof patchData["visualPlan"] === "object" &&
           patchData["visualPlan"] !== null &&
           !Array.isArray(patchData["visualPlan"]) &&
-          Object.keys(patchData["visualPlan"]).length === 0 &&
-          !("reviewNote" in patchData)
+          Object.keys(patchData["visualPlan"]).length === 0
         ) {
           sendError(
             res,
@@ -316,9 +500,9 @@ export function createRoutes(config: {
 
     // POST /api/scenes/:sceneId/search (M4-05)
     //
-    // Triggers an asset search for exactly one scene using the specified provider.
-    // The search reuses the M3 searchProjectAssets use case. After the search
-    // completes, a fresh UI-safe project view is returned (same as PATCH/PUT).
+    // Triggers an asset search for exactly one scene using the specified
+    // provider(s). The search reuses the searchProjectAssets use case. After
+    // the search completes, a fresh UI-safe project view is returned.
     routes.push({
       path: "/api/scenes/:sceneId/search",
       methods: ["POST"],
@@ -345,7 +529,7 @@ export function createRoutes(config: {
           return;
         }
 
-        // Strict Zod validation: only { provider, refresh, limit } is accepted.
+        // Strict Zod validation: only { providers?, refresh, limit } is accepted.
         // Unknown top-level fields (e.g. extra, projectRoot, sceneId, cachePath,
         // provider config) are rejected.
         const bodyParse = SearchBodySchema.safeParse(bodyResult.data);
@@ -360,7 +544,9 @@ export function createRoutes(config: {
         const useCaseInput = {
           projectRoot: config.projectRoot,
           sceneId: validSceneId,
-          provider: bodyParse.data.provider,
+          ...(bodyParse.data.providers !== undefined
+            ? { providers: bodyParse.data.providers }
+            : {}),
           maxAssetsPerQuery: bodyParse.data.limit,
           refresh: bodyParse.data.refresh,
         };
@@ -368,287 +554,6 @@ export function createRoutes(config: {
         try {
           await searchSceneAssets(useCaseInput);
           // Success: return fresh UI-safe view (same as PATCH/PUT)
-          const project = await getReviewProject(config.projectRoot, repository);
-          sendSuccess(res, 200, { project });
-        } catch (error) {
-          mapMutationError(error, res);
-        }
-      },
-    });
-
-    // PUT /api/scenes/:sceneId/selection (M4-06)
-    //
-    // Selects an asset candidate for a scene. The candidate must exist in
-    // the target scene's search results. If the candidate's rights carry
-    // warnings, rightsAcknowledged must be true.
-    //
-    // After the selection persists, a fresh UI-safe project view is returned.
-    routes.push({
-      path: "/api/scenes/:sceneId/selection",
-      methods: ["PUT"],
-      handler: async (req, res, params) => {
-        const sceneId = params.pathParams["sceneId"];
-
-        // Validate sceneId from path
-        const validSceneId = validateSceneId(sceneId ?? "");
-        if (!validSceneId) {
-          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
-          return;
-        }
-
-        // Read and parse JSON body
-        const bodyResult = await parseJsonBody(req, res);
-        if (!bodyResult.success) {
-          sendError(
-            res,
-            bodyResult.statusCode,
-            bodyResult.code,
-            bodyResult.message,
-            bodyResult.hint ?? undefined,
-          );
-          return;
-        }
-
-        // Strict Zod validation: only { candidateId, rightsAcknowledged } is accepted.
-        // Unknown top-level fields (e.g. extra, projectRoot, sceneId) are rejected.
-        const bodyParse = SelectionBodySchema.safeParse(bodyResult.data);
-        if (!bodyParse.success) {
-          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
-          return;
-        }
-
-        // Build the use case input.
-        // projectRoot and sceneId come from server config / URL path — never
-        // from the request body.
-        const useCaseInput = {
-          projectRoot: config.projectRoot,
-          sceneId: validSceneId,
-          candidateId: bodyParse.data.candidateId,
-          rightsAcknowledged: bodyParse.data.rightsAcknowledged,
-        };
-
-        try {
-          await selectCandidate(useCaseInput, { repository });
-          // Success: return fresh UI-safe view
-          const project = await getReviewProject(config.projectRoot, repository);
-          sendSuccess(res, 200, { project });
-        } catch (error) {
-          mapMutationError(error, res);
-        }
-      },
-    });
-
-    // POST /api/scenes/:sceneId/local-asset (M4-07)
-    //
-    // Uploads a local image/video file and attaches it to a scene.
-    // The file is written to assets/<scene-id>/ with a server-generated
-    // safe filename. The scene's review state is updated to either
-    // local_asset_attached or candidate_selected.localAsset depending on
-    // the provenance and current review state.
-    //
-    // After the attachment persists, a fresh UI-safe project view is returned.
-    routes.push({
-      path: "/api/scenes/:sceneId/local-asset",
-      methods: ["POST"],
-      handler: async (req, res, params) => {
-        const sceneId = params.pathParams["sceneId"];
-
-        // Validate sceneId from path
-        const validSceneId = validateSceneId(sceneId ?? "");
-        if (!validSceneId) {
-          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
-          return;
-        }
-
-        // Parse multipart/form-data body
-        const multipartResult: MultipartParseResult = await parseMultipartUpload(req, res);
-        if (!multipartResult.success) {
-          sendMultipartError(res, multipartResult);
-          return;
-        }
-
-        // Validate magic bytes
-        const magicResult = validateMagicBytes(multipartResult.file.buffer);
-        if (!magicResult.valid || !magicResult.mimeType || !magicResult.extension) {
-          sendError(
-            res,
-            400,
-            ERROR_INVALID_REQUEST,
-            "File content does not match any allowed type",
-            "Upload a valid PNG or JPEG image",
-          );
-          return;
-        }
-
-        // Three-layer allowlist: magic bytes + Content-Type + filename extension.
-        // Magic bytes are the ultimate source of truth. The multipart part
-        // Content-Type and the original filename extension must both agree
-        // with the magic byte detection.
-        const partContentType = multipartResult.file.contentType.toLowerCase();
-        if (partContentType !== magicResult.mimeType) {
-          sendError(
-            res,
-            400,
-            ERROR_INVALID_REQUEST,
-            "File Content-Type does not match file content",
-            `Expected ${magicResult.mimeType} based on file content`,
-          );
-          return;
-        }
-
-        // Validate the original filename extension against the magic byte result.
-        // .jpg and .jpeg both correspond to image/jpeg.
-        const originalName = multipartResult.file.originalFileName;
-        const lastDot = originalName.lastIndexOf(".");
-        if (lastDot === -1 || lastDot === originalName.length - 1) {
-          sendError(
-            res,
-            400,
-            ERROR_INVALID_REQUEST,
-            "Filename must have a valid extension",
-            "Use .png, .jpg, or .jpeg",
-          );
-          return;
-        }
-        const fileExt = originalName.slice(lastDot).toLowerCase();
-        const allowedExts = magicResult.mimeType === "image/png" ? [".png"] : [".jpg", ".jpeg"];
-        if (!allowedExts.includes(fileExt)) {
-          sendError(
-            res,
-            400,
-            ERROR_INVALID_REQUEST,
-            "Filename extension does not match file content",
-            `Expected ${allowedExts.join(" or ")} for ${magicResult.mimeType}`,
-          );
-          return;
-        }
-
-        // Sanitize original filename
-        const safeName = safeFileName(multipartResult.file.originalFileName);
-        const originalFileName = safeName ?? "upload";
-
-        // Parse provenance JSON if provided
-        let provenance: unknown = undefined;
-        if (multipartResult.provenance !== null) {
-          try {
-            provenance = JSON.parse(multipartResult.provenance);
-          } catch {
-            sendError(res, 400, ERROR_INVALID_REQUEST, "provenance is not valid JSON");
-            return;
-          }
-
-          // Reject provenance containing projectRoot, sceneId, or relativePath
-          if (typeof provenance === "object" && provenance !== null && !Array.isArray(provenance)) {
-            const provenanceObj = provenance as Record<string, unknown>;
-            if (
-              "projectRoot" in provenanceObj ||
-              "sceneId" in provenanceObj ||
-              "relativePath" in provenanceObj
-            ) {
-              sendError(
-                res,
-                400,
-                ERROR_INVALID_REQUEST,
-                "provenance must not contain projectRoot, sceneId, or relativePath",
-              );
-              return;
-            }
-          }
-        }
-
-        // Parse note if provided
-        let note: string | undefined;
-        if (multipartResult.note !== null) {
-          const trimmed = multipartResult.note.trim();
-          if (trimmed.length > 0) {
-            note = trimmed;
-          }
-        }
-
-        // Build the use case input.
-        // projectRoot and sceneId come from server config / URL path — never
-        // from the request body.
-        const useCaseInput = {
-          projectRoot: config.projectRoot,
-          sceneId: validSceneId,
-          fileBuffer: multipartResult.file.buffer,
-          originalFileName,
-          mimeType: magicResult.mimeType,
-          extension: magicResult.extension,
-          ...(provenance !== undefined ? { provenance } : {}),
-          ...(note !== undefined ? { note } : {}),
-        };
-
-        try {
-          await attachLocalAsset(useCaseInput, {
-            repository,
-            assetWriter,
-          });
-          // Success: return fresh UI-safe view
-          const project = await getReviewProject(config.projectRoot, repository);
-          sendSuccess(res, 200, { project });
-        } catch (error) {
-          mapMutationError(error, res);
-        }
-      },
-    });
-
-    // PUT /api/scenes/:sceneId/skip (M4-06)
-    //
-    // Marks a scene as skipped in the user's review decision.
-    // Search candidates are preserved as an audit chain.
-    //
-    // After the skip persists, a fresh UI-safe project view is returned.
-    routes.push({
-      path: "/api/scenes/:sceneId/skip",
-      methods: ["PUT"],
-      handler: async (req, res, params) => {
-        const sceneId = params.pathParams["sceneId"];
-
-        // Validate sceneId from path
-        const validSceneId = validateSceneId(sceneId ?? "");
-        if (!validSceneId) {
-          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid scene ID");
-          return;
-        }
-
-        // Read and parse JSON body
-        const bodyResult = await parseJsonBody(req, res);
-        if (!bodyResult.success) {
-          sendError(
-            res,
-            bodyResult.statusCode,
-            bodyResult.code,
-            bodyResult.message,
-            bodyResult.hint ?? undefined,
-          );
-          return;
-        }
-
-        // Strict Zod validation: only { note? } is accepted.
-        // Unknown top-level fields (e.g. extra, projectRoot, sceneId) are rejected.
-        const bodyParse = SkipBodySchema.safeParse(bodyResult.data);
-        if (!bodyParse.success) {
-          sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request body");
-          return;
-        }
-
-        // Build the use case input.
-        // projectRoot and sceneId come from server config / URL path — never
-        // from the request body.
-        const useCaseInput: {
-          projectRoot: string;
-          sceneId: string;
-          note?: string;
-        } = {
-          projectRoot: config.projectRoot,
-          sceneId: validSceneId,
-          ...(bodyParse.data.note !== undefined ? { note: bodyParse.data.note } : {}),
-        };
-
-        try {
-          await skipScene(useCaseInput, { repository });
-          // Success: return fresh UI-safe view
           const project = await getReviewProject(config.projectRoot, repository);
           sendSuccess(res, 200, { project });
         } catch (error) {
@@ -738,6 +643,12 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
     return;
   }
 
+  // ProjectAlreadyExistsError → 409 conflict (create with force=false)
+  if (code === "project_already_exists") {
+    sendError(res, 409, "conflict", "Project already exists", "Retry with force=true to overwrite");
+    return;
+  }
+
   // ProjectValidationError / schema invalid → 409 conflict
   if (
     code === "project_validation_error" ||
@@ -753,6 +664,23 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
   // Covers: project not planned, scene not found (legacy), provider unavailable.
   if (code === "project_not_planned") {
     sendError(res, 409, "conflict", "Conflict with current project state", undefined);
+    return;
+  }
+
+  // Planner errors (LLM output quality: bad JSON, validation, anchor overlap)
+  // → 422 so the frontend can show a retry-friendly message.
+  if (
+    code === "planner_error" ||
+    code === "planner_output_error" ||
+    code === "planner_validation_error"
+  ) {
+    sendError(
+      res,
+      422,
+      "planner_error",
+      "LLM 规划输出不符合要求",
+      "请重试一键生成（LLM 输出有随机性），或换更清晰的文稿；持续失败可切换为 DeepSeek 提供方",
+    );
     return;
   }
 

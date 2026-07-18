@@ -199,7 +199,6 @@ function makeTestProject(): SpeechToSceneProject {
           candidates: [],
           lastSearchedAt: FIXED_NOW,
         },
-        review: { kind: "pending" },
       },
       {
         id: "scene-002",
@@ -221,7 +220,6 @@ function makeTestProject(): SpeechToSceneProject {
           visualKeywords: ["speaker"],
         },
         search: { queries: [], candidates: [] },
-        review: { kind: "pending", note: "Existing note" },
       },
     ],
   });
@@ -262,14 +260,6 @@ async function startTestServer(
     updateSceneQueries,
     searchSceneAssets: () =>
       Promise.reject(new Error("searchSceneAssets not configured for this test")),
-    selectCandidate: () =>
-      Promise.reject(new Error("selectCandidate not configured for this test")),
-    skipScene: () => Promise.reject(new Error("skipScene not configured for this test")),
-    attachLocalAsset: () =>
-      Promise.reject(new Error("attachLocalAsset not configured for this test")),
-    assetWriter: {
-      writeAsset: () => Promise.reject(new Error("assetWriter not configured")),
-    },
   };
 
   const handle = await startReviewServer(
@@ -308,7 +298,7 @@ describe("PATCH /api/scenes/:sceneId", () => {
     expect(project.scenes[0]!.visualPlan.rationale).toBe("Updated rationale");
   }, 10000);
 
-  it("2. correct token successfully sets reviewNote", async () => {
+  it("2. reviewNote field is now rejected (unknown field) → 400 invalid_request", async () => {
     const { port } = await startTestServer({ token: "tok" });
     const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
@@ -317,30 +307,27 @@ describe("PATCH /api/scenes/:sceneId", () => {
       body: JSON.stringify({ reviewNote: "A note from API" }),
     });
 
-    expect(status).toBe(200);
-    // Step-by-step casts to avoid parser issues with nested generics
-    const r1Project = (body as { project: unknown }).project;
-    const r1Scenes = (r1Project as { scenes: unknown[] }).scenes;
-    const r1Scene = r1Scenes[0] as { review: { note?: string } };
-    expect(r1Scene.review.note).toBe("A note from API");
+    // Phase 1 redesign: reviewNote is no longer a valid field — only visualPlan is accepted.
+    expect(status).toBe(400);
+    expect((body as { error: { code: string } }).error.code).toBe("invalid_request");
   }, 10000);
 
-  it("3. reviewNote null deletes note", async () => {
+  it("3. visualPlan update with multiple fields succeeds", async () => {
     const { port } = await startTestServer({ token: "tok" });
-    // scene-002 has a note "Existing note"
-    const { status, body } = await httpRequest(port, "/api/scenes/scene-002", {
+    const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
       token: "tok",
-      body: JSON.stringify({ reviewNote: null }),
+      body: JSON.stringify({
+        visualPlan: { rationale: "Updated rationale", decision: "title_card" },
+      }),
     });
 
     expect(status).toBe(200);
-    // Step-by-step casts
-    const r2Project = (body as { project: unknown }).project;
-    const r2Scenes = (r2Project as { scenes: unknown[] }).scenes;
-    const r2Scene = r2Scenes[1] as { review: Record<string, unknown> };
-    expect(r2Scene.review).not.toHaveProperty("note");
+    const project = (body as { project: { scenes: Array<{ visualPlan: { rationale: string; decision: string } }> } })
+      .project;
+    expect(project.scenes[0]!.visualPlan.rationale).toBe("Updated rationale");
+    expect(project.scenes[0]!.visualPlan.decision).toBe("title_card");
   }, 10000);
 
   it("4. { visualPlan: {} } → 400 invalid_request", async () => {
@@ -449,7 +436,7 @@ describe("PATCH /api/scenes/:sceneId", () => {
     expect((body as { error: { code: string } }).error.code).toBe("not_found");
   }, 10000);
 
-  it("12. stock_asset without enabled query → 409 conflict", async () => {
+  it("12. stock_asset without enabled query → PATCH succeeds (gating removed)", async () => {
     const repo = new InMemoryRepository();
     const projectRoot = "/test/conflict";
     const { port } = await startTestServer({ token: "tok", projectRoot, repo });
@@ -459,15 +446,15 @@ describe("PATCH /api/scenes/:sceneId", () => {
     project.scenes[0]!.search.queries = [];
     project.scenes[0]!.search.lastSearchedAt = undefined;
     repo.setProject(projectRoot, project);
-    const { status, body } = await httpRequest(port, "/api/scenes/scene-001", {
+    const { status } = await httpRequest(port, "/api/scenes/scene-001", {
       method: "PATCH",
       host: `127.0.0.1:${port}`,
       token: "tok",
       body: JSON.stringify({ visualPlan: { rationale: "still stock" } }),
     });
 
-    expect(status).toBe(409);
-    expect((body as { error: { code: string } }).error.code).toBe("conflict");
+    // Phase 1 redesign: stock_asset gating removed — PATCH succeeds.
+    expect(status).toBe(200);
   }, 10000);
 
   it("13. response does not leak projectRoot/token/stack", async () => {

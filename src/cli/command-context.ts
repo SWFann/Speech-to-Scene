@@ -20,11 +20,7 @@ import { getProjectStatusUseCase } from "../application/get-project-status.js";
 import { getReviewProject } from "../application/get-review-project.js";
 import { updateScene } from "../application/update-scene.js";
 import { updateSceneQueries } from "../application/update-scene-queries.js";
-import { selectCandidate } from "../application/select-candidate.js";
-import { skipScene } from "../application/skip-scene.js";
-import { attachLocalAsset } from "../application/attach-local-asset.js";
 import { validateProject } from "../application/validate-project.js";
-import { FsLocalAssetWriter } from "../infrastructure/local-asset-writer.js";
 import { formatError, formatUnexpectedError } from "./error-reporter.js";
 import type { Clock } from "../application/ports/clock.js";
 import type { IdGenerator } from "../application/ports/id-generator.js";
@@ -46,11 +42,7 @@ export interface CommandContext {
   getReviewProject: typeof getReviewProject;
   updateScene: typeof updateScene;
   updateSceneQueries: typeof updateSceneQueries;
-  selectCandidate: typeof selectCandidate;
-  skipScene: typeof skipScene;
-  attachLocalAsset: typeof attachLocalAsset;
   validateProject: typeof validateProject;
-  assetWriter: FsLocalAssetWriter;
   formatError: (error: AppError) => string;
   formatUnexpectedError: (error: unknown) => string;
 }
@@ -74,11 +66,7 @@ export function createCommandContext(): CommandContext {
     getReviewProject,
     updateScene,
     updateSceneQueries,
-    selectCandidate,
-    skipScene,
-    attachLocalAsset,
     validateProject,
-    assetWriter: new FsLocalAssetWriter(),
     formatError,
     formatUnexpectedError,
   };

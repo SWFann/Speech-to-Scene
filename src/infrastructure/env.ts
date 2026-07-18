@@ -32,6 +32,9 @@ export interface AssetProviderEnvConfig {
   readonly pexelsApiKey: string | undefined;
   readonly pexelsBaseUrl: string | undefined;
   readonly pexelsVideoBaseUrl: string | undefined;
+  readonly pixabayApiKey: string | undefined;
+  readonly unsplashApiKey: string | undefined;
+  readonly openverseApiKey: string | undefined;
 }
 
 /**
@@ -165,6 +168,9 @@ export function readAssetProviderEnv(): AssetProviderEnvConfig {
     pexelsApiKey: getEnv("PEXELS_API_KEY") ?? undefined,
     pexelsBaseUrl: getEnv("PEXELS_BASE_URL") ?? undefined,
     pexelsVideoBaseUrl: getEnv("PEXELS_VIDEO_BASE_URL") ?? undefined,
+    pixabayApiKey: getEnv("PIXABAY_API_KEY") ?? undefined,
+    unsplashApiKey: getEnv("UNSPLASH_API_KEY") ?? undefined,
+    openverseApiKey: getEnv("OPENVERSE_API_KEY") ?? undefined,
   };
 }
 

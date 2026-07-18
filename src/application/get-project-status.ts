@@ -7,10 +7,12 @@
  * 3. Return a structured view suitable for CLI output or JSON serialization.
  *
  * This use case does not modify any state.
+ *
+ * Phase 1 redesign: the review state machine has been removed. Status now
+ * reflects search progress only (pending vs candidates_ready).
  */
 
 import type { ProjectRepository } from "../application/ports/project-repository.js";
-import type { SpeechToSceneProject } from "../domain/project-schema.js";
 import { getProjectStatus } from "../domain/project-status.js";
 
 // ---------------------------------------------------------------------------
@@ -18,24 +20,18 @@ import { getProjectStatus } from "../domain/project-status.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Review progress summary for a project.
+ * Search progress summary for a project.
  *
- * Counts are derived from scene review decisions:
- * - `pending`: review.kind === "pending"
- * - `skipped`: review.kind === "skipped"
- * - `candidateSelected`: review.kind === "candidate_selected" (with or without localAsset)
- * - `localAssetAttached`: review.kind === "local_asset_attached"
- * - `withLocalAsset`: localAssetAttached + candidate_selected with localAsset present
- * - `completionRatio`: (totalScenes - pending) / totalScenes, or 0 when totalScenes is 0
+ * Counts are derived from scene search state:
+ * - `pending`: no candidates yet
+ * - `candidatesReady`: scene has candidates (asset or link)
+ * - `searchedRatio`: searchedScenes / totalScenes, or 0 when totalScenes is 0
  */
-export interface ReviewSummary {
+export interface SearchSummary {
   totalScenes: number;
   pending: number;
-  skipped: number;
-  candidateSelected: number;
-  localAssetAttached: number;
-  withLocalAsset: number;
-  completionRatio: number;
+  candidatesReady: number;
+  searchedRatio: number;
 }
 
 /**
@@ -61,7 +57,7 @@ export interface ProjectStatusView {
     total: number;
     byStatus: Record<string, number>;
   };
-  review: ReviewSummary;
+  search: SearchSummary;
   updatedAt: string;
 }
 
@@ -70,49 +66,32 @@ export interface ProjectStatusView {
 // ---------------------------------------------------------------------------
 
 /**
- * Computes the review progress summary from a project's scenes.
+ * Computes the search progress summary from a project's scene statuses.
  *
  * This is a pure function — no side effects, no I/O.
  */
-function computeReviewSummary(scenes: SpeechToSceneProject["scenes"]): ReviewSummary {
-  const totalScenes = scenes.length;
+function computeSearchSummary(
+  sceneStatuses: ReadonlyArray<{ status: string }>,
+): SearchSummary {
+  const totalScenes = sceneStatuses.length;
   let pending = 0;
-  let skipped = 0;
-  let candidateSelected = 0;
-  let localAssetAttached = 0;
-  let withLocalAsset = 0;
+  let candidatesReady = 0;
 
-  for (const scene of scenes) {
-    switch (scene.review.kind) {
-      case "pending":
-        pending++;
-        break;
-      case "skipped":
-        skipped++;
-        break;
-      case "candidate_selected":
-        candidateSelected++;
-        if (scene.review.localAsset !== undefined) {
-          withLocalAsset++;
-        }
-        break;
-      case "local_asset_attached":
-        localAssetAttached++;
-        withLocalAsset++;
-        break;
+  for (const ss of sceneStatuses) {
+    if (ss.status === "candidates_ready") {
+      candidatesReady++;
+    } else {
+      pending++;
     }
   }
 
-  const completionRatio = totalScenes === 0 ? 0 : (totalScenes - pending) / totalScenes;
+  const searchedRatio = totalScenes === 0 ? 0 : candidatesReady / totalScenes;
 
   return {
     totalScenes,
     pending,
-    skipped,
-    candidateSelected,
-    localAssetAttached,
-    withLocalAsset,
-    completionRatio,
+    candidatesReady,
+    searchedRatio,
   };
 }
 
@@ -161,7 +140,7 @@ export async function getProjectStatusUseCase(
       total: status.sceneCount,
       byStatus,
     },
-    review: computeReviewSummary(project.scenes),
+    search: computeSearchSummary(status.scenes),
     updatedAt: project.project.updatedAt,
   };
 }

@@ -10,32 +10,17 @@ import {
 import type { ReviewProjectView } from "./types.js";
 import { TopBar } from "./components/TopBar.js";
 import { SceneList } from "./components/SceneList.js";
-import { SceneDetail, type BusyAction, type SearchProvider } from "./components/SceneDetail.js";
-import { Inspector } from "./components/Inspector.js";
+import { SceneDetail, type BusyAction } from "./components/SceneDetail.js";
+import { Settings } from "lucide-react";
 import { ErrorView } from "./components/ErrorView.js";
+import { LandingView } from "./components/LandingView.js";
+import { SettingsPanel } from "./components/SettingsPanel.js";
 import type { ActionErrorInfo } from "./components/ActionError.js";
-import type { UploadProvenance } from "./components/LocalAssetUpload.js";
 
 type LoadState =
   | { kind: "loading" }
   | { kind: "error"; message: string; hint?: string; code: string }
   | { kind: "success"; project: ReviewProjectView };
-
-function selectedCandidateIdForScene(scene: ReviewProjectView["scenes"][number]): string | null {
-  return scene.review.kind === "candidate_selected" ? scene.review.selection.candidate.id : null;
-}
-
-function isRightsAcknowledgementConflict(err: ReviewApiError): boolean {
-  if (err.code !== "conflict") return false;
-  const text = `${err.message} ${err.hint ?? ""}`.toLowerCase();
-  return (
-    text.includes("rights") ||
-    text.includes("acknowledg") ||
-    text.includes("权利") ||
-    text.includes("许可") ||
-    text.includes("确认")
-  );
-}
 
 /** Map a ReviewApiError to a UI-safe ActionErrorInfo without leaking token/path/stack. */
 function toActionError(err: unknown): ActionErrorInfo {
@@ -82,6 +67,11 @@ export function App(): React.ReactElement {
       setState({ kind: "success", project });
     } catch (err) {
       if (err instanceof ReviewApiError) {
+        // No project yet → show LandingView so the user can upload a script.
+        if (err.code === "not_found") {
+          setShowLanding(true);
+          return;
+        }
         setState({
           kind: "error",
           message: err.message,
@@ -104,15 +94,11 @@ export function App(): React.ReactElement {
   }, [loadProject]);
 
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [actionError, setActionError] = useState<ActionErrorInfo | null>(null);
-  const [rightsWarning, setRightsWarning] = useState<{
-    message: string;
-    hint?: string;
-    candidateId: string;
-    sceneId: string;
-  } | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showLanding, setShowLanding] = useState(false);
+  const [flowStep, setFlowStep] = useState<string | null>(null);
 
   // Set initial active scene when project loads
   useEffect(() => {
@@ -120,8 +106,6 @@ export function App(): React.ReactElement {
       const firstScene = state.project.scenes[0];
       if (firstScene) {
         setActiveSceneId(firstScene.id);
-        // If scene has a selected candidate, set it
-        setSelectedCandidateId(selectedCandidateIdForScene(firstScene));
       }
     }
   }, [state, activeSceneId]);
@@ -130,104 +114,33 @@ export function App(): React.ReactElement {
     (sceneId: string) => {
       setActiveSceneId(sceneId);
       setActionError(null);
-      setRightsWarning(null);
-      if (state.kind === "success") {
-        const scene = state.project.scenes.find((s) => s.id === sceneId);
-        setSelectedCandidateId(scene ? selectedCandidateIdForScene(scene) : null);
-      } else {
-        setSelectedCandidateId(null);
-      }
     },
-    [state],
+    [],
   );
-
-  const handleSelectCandidate = useCallback((candidateId: string) => {
-    setSelectedCandidateId(candidateId);
-  }, []);
 
   const handleTokenSubmit = useCallback((newToken: string) => {
     saveSessionToken(newToken);
     setToken(newToken);
   }, []);
 
-  // Sync selectedCandidateId from backend project state after mutation
+  // Sync project state after mutation
   const syncFromProject = useCallback(
     (project: ReviewProjectView) => {
       setState({ kind: "success", project });
-      // Keep active scene selected
-      if (activeSceneId) {
-        const updatedScene = project.scenes.find((s) => s.id === activeSceneId);
-        if (updatedScene) {
-          setSelectedCandidateId(selectedCandidateIdForScene(updatedScene));
-        }
-      }
     },
-    [activeSceneId],
+    [],
   );
 
-  // --- Mutation: select candidate ---
-  const handleSelectCandidateAction = useCallback(
-    async (candidateId: string) => {
-      if (!client || !activeSceneId) return;
-      setActionError(null);
-      setRightsWarning(null);
-      setBusyAction("select");
-      try {
-        const project = await client.selectCandidate(activeSceneId, {
-          candidateId,
-          rightsAcknowledged: false,
-        });
-        syncFromProject(project);
-      } catch (err) {
-        if (err instanceof ReviewApiError && isRightsAcknowledgementConflict(err)) {
-          // Rights acknowledgement conflicts can be retried after explicit confirmation.
-          setRightsWarning({
-            message: err.message || "当前候选需要确认权利许可",
-            ...(err.hint ? { hint: err.hint } : {}),
-            candidateId,
-            sceneId: activeSceneId,
-          });
-        } else {
-          setActionError(toActionError(err));
-        }
-      } finally {
-        setBusyAction(null);
-      }
-    },
-    [client, activeSceneId, syncFromProject],
-  );
-
-  // Retry select candidate with rightsAcknowledged=true after 409
-  const handleRightsConfirm = useCallback(async () => {
-    if (!client || !rightsWarning) return;
-    setBusyAction("select");
-    try {
-      const project = await client.selectCandidate(rightsWarning.sceneId, {
-        candidateId: rightsWarning.candidateId,
-        rightsAcknowledged: true,
-      });
-      setRightsWarning(null);
-      syncFromProject(project);
-    } catch (err) {
-      setRightsWarning(null);
-      setActionError(toActionError(err));
-    } finally {
-      setBusyAction(null);
-    }
-  }, [client, rightsWarning, syncFromProject]);
-
-  const handleRightsCancel = useCallback(() => {
-    setRightsWarning(null);
-  }, []);
-
-  // --- Mutation: skip scene ---
-  const handleSkipScene = useCallback(async () => {
+  // --- Mutation: search scene (multi-source, server auto-selects providers) ---
+  const handleSearchScene = useCallback(async () => {
     if (!client || !activeSceneId) return;
     setActionError(null);
-    setRightsWarning(null);
-    setBusyAction("skip");
+    setBusyAction("search");
     try {
-      const project = await client.skipScene(activeSceneId);
+      const project = await client.searchScene(activeSceneId, {
+        refresh: true,
+        limit: 12,
+      });
       syncFromProject(project);
     } catch (err) {
       setActionError(toActionError(err));
@@ -236,51 +149,91 @@ export function App(): React.ReactElement {
     }
   }, [client, activeSceneId, syncFromProject]);
 
-  // --- Mutation: search scene ---
-  const handleSearchScene = useCallback(
-    async (provider: SearchProvider) => {
-      if (!client || !activeSceneId) return;
+  // --- F4: one-click create → plan → search ---
+  const handleCreate = useCallback(
+    async (input: { content: string; fileName?: string; title?: string }) => {
+      if (!client) return;
       setActionError(null);
-      setRightsWarning(null);
       setBusyAction("search");
+      setFlowStep("创建项目中…");
       try {
-        const project = await client.searchScene(activeSceneId, {
-          provider,
-          refresh: true,
-          limit: 12,
-        });
+        const createInput: {
+          content: string;
+          force: boolean;
+          fileName?: string;
+          title?: string;
+        } = { content: input.content, force: true };
+        if (input.fileName !== undefined) createInput.fileName = input.fileName;
+        if (input.title !== undefined) createInput.title = input.title;
+        await client.createProject(createInput);
+        // Planner: prefer settings, default fixture (no key needed).
+        let plannerProvider: "fixture" | "deepseek" | "stepfun" = "fixture";
+        try {
+          const settings = await client.getSettings();
+          if (
+            settings.plannerProvider === "deepseek" ||
+            settings.plannerProvider === "stepfun"
+          ) {
+            plannerProvider = settings.plannerProvider;
+          }
+        } catch {
+          /* fall back to fixture */
+        }
+        setFlowStep("正在用 LLM 切片成场景…");
+        await client.planProject({ provider: plannerProvider, maxScenes: 12, force: true });
+        // Search: multi-source aggregation (server auto-selects all configured providers).
+        setFlowStep("正在搜索素材候选…");
+        const project = await client.searchProject({ limit: 12 });
         syncFromProject(project);
+        setShowLanding(false);
       } catch (err) {
         setActionError(toActionError(err));
       } finally {
         setBusyAction(null);
+        setFlowStep(null);
       }
     },
-    [client, activeSceneId, syncFromProject],
-  );
-
-  // --- Mutation: upload local asset ---
-  const handleUploadLocalAsset = useCallback(
-    async (input: { file: File; provenance: UploadProvenance }) => {
-      if (!client || !activeSceneId) return;
-      setActionError(null);
-      setRightsWarning(null);
-      setBusyAction("upload");
-      try {
-        const project = await client.uploadLocalAsset(activeSceneId, input);
-        syncFromProject(project);
-      } catch (err) {
-        setActionError(toActionError(err));
-      } finally {
-        setBusyAction(null);
-      }
-    },
-    [client, activeSceneId, syncFromProject],
+    [client, syncFromProject],
   );
 
   const handleDismissError = useCallback(() => {
     setActionError(null);
   }, []);
+
+  if (showLanding) {
+    return (
+      <>
+        <main className="app">
+          <header className="topbar">
+            <div className="brand">
+              <div className="mark">S2S</div>
+              <strong>Speech-to-Scene</strong>
+            </div>
+            <div className="actions">
+              <button
+                className="btn"
+                type="button"
+                onClick={() => setShowSettings(true)}
+                title="配置 API Key"
+              >
+                <Settings size={14} />
+                设置
+              </button>
+            </div>
+          </header>
+          <LandingView
+            onCreate={(input) => void handleCreate(input)}
+            busy={busyAction !== null}
+            flowStep={flowStep}
+            error={actionError}
+          />
+        </main>
+        {client && showSettings && (
+          <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
+        )}
+      </>
+    );
+  }
 
   if (state.kind === "loading") {
     return (
@@ -309,7 +262,18 @@ export function App(): React.ReactElement {
 
   return (
     <main className="app">
-      <TopBar project={project} error={null} />
+      <TopBar
+        project={project}
+        error={null}
+        onSettings={() => setShowSettings(true)}
+        onReset={() => {
+          if (
+            window.confirm("重新上传文稿会覆盖当前项目，确定继续？")
+          ) {
+            setShowLanding(true);
+          }
+        }}
+      />
       <section className="layout">
         <SceneList
           scenes={project.scenes}
@@ -317,36 +281,18 @@ export function App(): React.ReactElement {
           onSelect={handleSelectScene}
         />
         {activeScene && (
-          <>
-            <SceneDetail
-              scene={activeScene}
-              selectedCandidateId={selectedCandidateId}
-              onSelectCandidate={handleSelectCandidate}
-              onSelectCandidateAction={(id) => void handleSelectCandidateAction(id)}
-              onSkipScene={() => void handleSkipScene()}
-              onSearchScene={(provider) => void handleSearchScene(provider)}
-              busyAction={busyAction}
-              actionError={actionError}
-              rightsWarning={
-                rightsWarning
-                  ? {
-                      message: rightsWarning.message,
-                      ...(rightsWarning.hint ? { hint: rightsWarning.hint } : {}),
-                    }
-                  : null
-              }
-              onRightsConfirm={() => void handleRightsConfirm()}
-              onRightsCancel={handleRightsCancel}
-              onDismissError={handleDismissError}
-            />
-            <Inspector
-              scene={activeScene}
-              onUploadLocalAsset={(input) => void handleUploadLocalAsset(input)}
-              uploadBusy={busyAction === "upload"}
-            />
-          </>
+          <SceneDetail
+            scene={activeScene}
+            onSearchScene={() => void handleSearchScene()}
+            busyAction={busyAction}
+            actionError={actionError}
+            onDismissError={handleDismissError}
+          />
         )}
       </section>
+      {client && showSettings && (
+        <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
+      )}
     </main>
   );
 }

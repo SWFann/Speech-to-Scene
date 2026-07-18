@@ -12,7 +12,7 @@ describe("SceneList", () => {
 
     expect(screen.getByText("场景一摘要")).toBeDefined();
     expect(screen.getByText("场景二摘要")).toBeDefined();
-    expect(screen.getByText("候选就绪")).toBeDefined();
+    expect(screen.getByText("已搜索")).toBeDefined();
     expect(screen.getByText("2")).toBeDefined(); // scene count pill
   });
 
@@ -47,17 +47,11 @@ describe("SceneList", () => {
     expect(activeRow).toBeInstanceOf(HTMLElement);
   });
 
-  it("4. scene with done status shows done class", () => {
+  it("4. scene with candidates_ready status shows done class", () => {
     const project = createMinimalProject();
-    // scene-001 has status "candidates_ready" — not done
-    // Modify scene-002 to have status "skipped"
-    const scenes = [
-      ...project.scenes.slice(0, 1),
-      { ...project.scenes[1]!, status: "skipped" as const },
-    ];
-
+    // scene-001 has status "candidates_ready"
     const { container } = render(
-      <SceneList scenes={scenes} activeSceneId={null} onSelect={() => {}} />,
+      <SceneList scenes={project.scenes} activeSceneId={null} onSelect={() => {}} />,
     );
 
     const doneRows = container.querySelectorAll(".scene-row.done");

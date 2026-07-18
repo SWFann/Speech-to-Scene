@@ -38,6 +38,14 @@ pnpm build:all
 node dist/cli/index.js review ./demo --no-open
 ```
 
+### 一键启动（面向非技术用户）
+
+```bash
+pnpm start
+```
+
+`pnpm start` 会自动构建前后端、在 `./workspace/default` 启动 Review Server、并打开浏览器（token 已自动带在 URL 里）。首次打开若没有项目，前端会显示引导页，可直接粘贴口播文稿一键生成场景与素材候选。外部 API Key（Pexels / DeepSeek / StepFun）在前端「设置」面板配置一次即可，保存在 `./workspace/.s2s/settings.json`（不入 Git）。
+
 开发模式（后端通过 tsx 运行，前端通过 Vite dev server）：
 
 ```bash

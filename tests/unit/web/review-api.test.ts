@@ -138,7 +138,7 @@ describe("ReviewApiClient", () => {
       const apiErr = err as ReviewApiError;
       expect(apiErr.code).toBe("network_error");
       expect(apiErr.message).toContain("无法连接到本地 Review Server");
-      expect(apiErr.hint).toContain("pnpm s2s review");
+      expect(apiErr.hint).toContain("pnpm start");
     }
   });
 
@@ -215,10 +215,13 @@ describe("ReviewApiClient", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Mutation methods (M5-02)
+// Mutation methods — searchScene (Phase 1 material-discovery redesign)
+//
+// selectCandidate / skipScene / uploadLocalAsset have been removed. Only the
+// multi-source search mutation remains.
 // ---------------------------------------------------------------------------
 
-describe("ReviewApiClient — mutation methods", () => {
+describe("ReviewApiClient — searchScene mutation", () => {
   beforeEach(() => {
     const store = new Map<string, string>();
     vi.stubGlobal("localStorage", {
@@ -249,122 +252,7 @@ describe("ReviewApiClient — mutation methods", () => {
     );
   }
 
-  it("8. selectCandidate sends PUT /api/scenes/:sceneId/selection with correct body", async () => {
-    mockMutationSuccess();
-    const client = new ReviewApiClient({
-      baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
-    });
-
-    await client.selectCandidate("scene-001", {
-      candidateId: "cand-safe",
-      rightsAcknowledged: false,
-    });
-
-    const fetchCall = vi.mocked(fetch).mock.calls[0]!;
-    const url = fetchCall[0] as string;
-    const init = fetchCall[1] as RequestInit;
-
-    expect(url).toBe("http://127.0.0.1:3210/api/scenes/scene-001/selection");
-    expect(init.method).toBe("PUT");
-
-    const headers = init.headers as Record<string, string>;
-    expect(headers["X-S2S-Session"]).toBe("test-token");
-    expect(headers["Content-Type"]).toBe("application/json");
-
-    const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body.candidateId).toBe("cand-safe");
-    expect(body.rightsAcknowledged).toBe(false);
-    // Body must NOT contain forbidden fields
-    expect(body.projectRoot).toBeUndefined();
-    expect(body.sceneId).toBeUndefined();
-  });
-
-  it("9. selectCandidate returns project from { ok:true, project }", async () => {
-    mockMutationSuccess();
-    const client = new ReviewApiClient({
-      baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
-    });
-
-    const project = await client.selectCandidate("scene-001", {
-      candidateId: "cand-safe",
-      rightsAcknowledged: false,
-    });
-
-    expect(project.schemaVersion).toBe("0.1");
-    expect(project.project.title).toBe("测试项目");
-  });
-
-  it("10. selectCandidate 409 conflict — returns ReviewApiError with code/status/message/hint", async () => {
-    mockFetchError(409, {
-      ok: false,
-      error: {
-        code: "conflict",
-        message: "Candidate requires rights acknowledgement",
-        hint: "Confirm the rights warning and retry",
-      },
-    });
-
-    const client = new ReviewApiClient({
-      baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
-    });
-
-    try {
-      await client.selectCandidate("scene-001", {
-        candidateId: "cand-safe",
-        rightsAcknowledged: false,
-      });
-      expect.fail("Should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ReviewApiError);
-      const apiErr = err as ReviewApiError;
-      expect(apiErr.code).toBe("conflict");
-      expect(apiErr.statusCode).toBe(409);
-      expect(apiErr.message).toBe("Candidate requires rights acknowledgement");
-      expect(apiErr.hint).toBe("Confirm the rights warning and retry");
-    }
-  });
-
-  it("11. skipScene sends PUT /api/scenes/:sceneId/skip", async () => {
-    mockMutationSuccess();
-    const client = new ReviewApiClient({
-      baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
-    });
-
-    await client.skipScene("scene-001", { note: "不需要" });
-
-    const fetchCall = vi.mocked(fetch).mock.calls[0]!;
-    const url = fetchCall[0] as string;
-    const init = fetchCall[1] as RequestInit;
-
-    expect(url).toBe("http://127.0.0.1:3210/api/scenes/scene-001/skip");
-    expect(init.method).toBe("PUT");
-
-    const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body.note).toBe("不需要");
-    expect(body.projectRoot).toBeUndefined();
-    expect(body.sceneId).toBeUndefined();
-  });
-
-  it("12. skipScene without note sends empty object", async () => {
-    mockMutationSuccess();
-    const client = new ReviewApiClient({
-      baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
-    });
-
-    await client.skipScene("scene-001");
-
-    const fetchCall = vi.mocked(fetch).mock.calls[0]!;
-    const init = fetchCall[1] as RequestInit;
-    const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(Object.keys(body)).toHaveLength(0);
-  });
-
-  it("13. searchScene sends POST /api/scenes/:sceneId/search with provider/refresh/limit", async () => {
+  it("8. searchScene sends POST /api/scenes/:sceneId/search with providers/refresh/limit", async () => {
     mockMutationSuccess();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
@@ -372,7 +260,7 @@ describe("ReviewApiClient — mutation methods", () => {
     });
 
     await client.searchScene("scene-001", {
-      provider: "fixture",
+      providers: ["fixture", "pexels"],
       refresh: true,
       limit: 12,
     });
@@ -384,70 +272,79 @@ describe("ReviewApiClient — mutation methods", () => {
     expect(url).toBe("http://127.0.0.1:3210/api/scenes/scene-001/search");
     expect(init.method).toBe("POST");
 
+    const headers = init.headers as Record<string, string>;
+    expect(headers["X-S2S-Session"]).toBe("test-token");
+    expect(headers["Content-Type"]).toBe("application/json");
+
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body.provider).toBe("fixture");
+    expect(body.providers).toEqual(["fixture", "pexels"]);
     expect(body.refresh).toBe(true);
     expect(body.limit).toBe(12);
+    // Body must NOT contain forbidden fields
     expect(body.projectRoot).toBeUndefined();
+    expect(body.sceneId).toBeUndefined();
+    expect(body.provider).toBeUndefined();
   });
 
-  it("14. uploadLocalAsset sends FormData without manual Content-Type", async () => {
+  it("9. searchScene omits providers when not specified", async () => {
     mockMutationSuccess();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
       token: "test-token",
     });
 
-    const file = new File(["fake-png-bytes"], "photo.png", { type: "image/png" });
-
-    await client.uploadLocalAsset("scene-001", {
-      file,
-      provenance: { kind: "user_owned" },
-    });
+    await client.searchScene("scene-001", { refresh: true, limit: 12 });
 
     const fetchCall = vi.mocked(fetch).mock.calls[0]!;
-    const url = fetchCall[0] as string;
     const init = fetchCall[1] as RequestInit;
-
-    expect(url).toBe("http://127.0.0.1:3210/api/scenes/scene-001/local-asset");
-    expect(init.method).toBe("POST");
-
-    const headers = init.headers as Record<string, string>;
-    // X-S2S-Session should be set
-    expect(headers["X-S2S-Session"]).toBe("test-token");
-    // Content-Type must NOT be set manually — browser sets it with boundary
-    expect(headers["Content-Type"]).toBeUndefined();
-
-    // Body should be FormData
-    expect(init.body).toBeInstanceOf(FormData);
-    const formData = init.body as FormData;
-    expect(formData.get("file")).toBeInstanceOf(File);
-    expect(formData.get("provenance")).toBe(JSON.stringify({ kind: "user_owned" }));
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.providers).toBeUndefined();
+    expect(body.refresh).toBe(true);
+    expect(body.limit).toBe(12);
   });
 
-  it("15. uploadLocalAsset with selected_candidate provenance sends candidateId", async () => {
+  it("10. searchScene returns project from { ok:true, project }", async () => {
     mockMutationSuccess();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
       token: "test-token",
     });
 
-    const file = new File(["fake-png-bytes"], "photo.png", { type: "image/png" });
+    const project = await client.searchScene("scene-001", { refresh: true });
 
-    await client.uploadLocalAsset("scene-001", {
-      file,
-      provenance: { kind: "selected_candidate", candidateId: "cand-safe" },
-    });
-
-    const fetchCall = vi.mocked(fetch).mock.calls[0]!;
-    const init = fetchCall[1] as RequestInit;
-    const formData = init.body as FormData;
-    const provenance = JSON.parse(formData.get("provenance") as string) as Record<string, unknown>;
-    expect(provenance.kind).toBe("selected_candidate");
-    expect(provenance.candidateId).toBe("cand-safe");
+    expect(project.schemaVersion).toBe("0.1");
+    expect(project.project.title).toBe("测试项目");
   });
 
-  it("16. mutation network error — returns network_error without token in message", async () => {
+  it("11. searchScene 409 conflict — returns ReviewApiError with code/status/message/hint", async () => {
+    mockFetchError(409, {
+      ok: false,
+      error: {
+        code: "conflict",
+        message: "Conflict with current project state",
+        hint: "Refresh the project and retry",
+      },
+    });
+
+    const client = new ReviewApiClient({
+      baseUrl: "http://127.0.0.1:3210",
+      token: "test-token",
+    });
+
+    try {
+      await client.searchScene("scene-001", { refresh: true });
+      expect.fail("Should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ReviewApiError);
+      const apiErr = err as ReviewApiError;
+      expect(apiErr.code).toBe("conflict");
+      expect(apiErr.statusCode).toBe(409);
+      expect(apiErr.message).toBe("Conflict with current project state");
+      expect(apiErr.hint).toBe("Refresh the project and retry");
+    }
+  });
+
+  it("12. searchScene network error — returns network_error without token in message", async () => {
     mockFetchNetworkError();
     const client = new ReviewApiClient({
       baseUrl: "http://127.0.0.1:3210",
@@ -455,7 +352,7 @@ describe("ReviewApiClient — mutation methods", () => {
     });
 
     try {
-      await client.skipScene("scene-001");
+      await client.searchScene("scene-001", { refresh: true });
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ReviewApiError);
@@ -467,7 +364,7 @@ describe("ReviewApiClient — mutation methods", () => {
     }
   });
 
-  it("17. mutation 401 error — headers include token but error message does not", async () => {
+  it("13. searchScene 401 — returns session_required, token not in message", async () => {
     mockFetchError(401, {
       ok: false,
       error: { code: "session_required", message: "Session token is required" },
@@ -478,10 +375,7 @@ describe("ReviewApiClient — mutation methods", () => {
     });
 
     try {
-      await client.selectCandidate("scene-001", {
-        candidateId: "cand-safe",
-        rightsAcknowledged: false,
-      });
+      await client.searchScene("scene-001", { refresh: true });
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ReviewApiError);
@@ -497,7 +391,7 @@ describe("ReviewApiClient — mutation methods", () => {
     expect(headers["X-S2S-Session"]).toBe("my-secret-token");
   });
 
-  it("18. mutation 400 invalid_request — returns invalid_request error", async () => {
+  it("14. searchScene 400 invalid_request — returns invalid_request error", async () => {
     mockFetchError(400, {
       ok: false,
       error: { code: "invalid_request", message: "Invalid request body" },
@@ -508,7 +402,7 @@ describe("ReviewApiClient — mutation methods", () => {
     });
 
     try {
-      await client.searchScene("scene-001", { provider: "fixture" });
+      await client.searchScene("scene-001", { providers: ["unknown" as never] });
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ReviewApiError);
@@ -518,59 +412,7 @@ describe("ReviewApiClient — mutation methods", () => {
     }
   });
 
-  it("19. upload 413 payload_too_large — returns payload_too_large error", async () => {
-    mockFetchError(413, {
-      ok: false,
-      error: { code: "payload_too_large", message: "Upload exceeds size limit" },
-    });
-    const client = new ReviewApiClient({
-      baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
-    });
-
-    const file = new File(["x".repeat(100)], "big.png", { type: "image/png" });
-
-    try {
-      await client.uploadLocalAsset("scene-001", {
-        file,
-        provenance: { kind: "user_owned" },
-      });
-      expect.fail("Should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ReviewApiError);
-      const apiErr = err as ReviewApiError;
-      expect(apiErr.code).toBe("payload_too_large");
-      expect(apiErr.statusCode).toBe(413);
-    }
-  });
-
-  it("20. upload 415 unsupported_media_type — returns unsupported_media_type error", async () => {
-    mockFetchError(415, {
-      ok: false,
-      error: { code: "unsupported_media_type", message: "Only PNG/JPEG supported" },
-    });
-    const client = new ReviewApiClient({
-      baseUrl: "http://127.0.0.1:3210",
-      token: "test-token",
-    });
-
-    const file = new File(["x"], "file.svg", { type: "image/svg+xml" });
-
-    try {
-      await client.uploadLocalAsset("scene-001", {
-        file,
-        provenance: { kind: "user_owned" },
-      });
-      expect.fail("Should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(ReviewApiError);
-      const apiErr = err as ReviewApiError;
-      expect(apiErr.code).toBe("unsupported_media_type");
-      expect(apiErr.statusCode).toBe(415);
-    }
-  });
-
-  it("21. mutation 500 internal_error — returns generic message without stack/path", async () => {
+  it("15. searchScene 500 internal_error — returns generic message without stack/path", async () => {
     mockFetchError(500, {
       ok: false,
       error: { code: "internal_error", message: "Internal server error" },
@@ -581,7 +423,7 @@ describe("ReviewApiClient — mutation methods", () => {
     });
 
     try {
-      await client.skipScene("scene-001");
+      await client.searchScene("scene-001", { refresh: true });
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ReviewApiError);
@@ -594,7 +436,7 @@ describe("ReviewApiClient — mutation methods", () => {
     }
   });
 
-  it("22. selectCandidate 403 session_rejected — returns session_rejected error", async () => {
+  it("16. searchScene 403 session_rejected — returns session_rejected error", async () => {
     mockFetchError(403, {
       ok: false,
       error: { code: "session_rejected", message: "Session token is invalid" },
@@ -605,10 +447,7 @@ describe("ReviewApiClient — mutation methods", () => {
     });
 
     try {
-      await client.selectCandidate("scene-001", {
-        candidateId: "cand-safe",
-        rightsAcknowledged: false,
-      });
+      await client.searchScene("scene-001", { refresh: true });
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ReviewApiError);

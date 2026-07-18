@@ -1,17 +1,32 @@
-import { CheckCircle, AlertCircle, Settings } from "lucide-react";
+import { CheckCircle, AlertCircle, Settings, Upload } from "lucide-react";
 
 import type { ReviewProjectView } from "../types.js";
 
 interface TopBarProps {
   project: ReviewProjectView | null;
   error: string | null;
+  onSettings?: () => void;
+  /** Re-open the upload/landing view to replace the script (force-overwrite). */
+  onReset?: () => void;
 }
 
-export function TopBar({ project, error }: TopBarProps): React.ReactElement {
+/**
+ * Detect whether the project was planned or searched using the fixture
+ * test stub (fake scenes / gray thumbnails).
+ */
+function isFixtureProject(project: ReviewProjectView | null): boolean {
+  if (!project) return false;
+  if (project.generation?.plannerProvider === "fixture") return true;
+  return project.scenes.some((s) =>
+    s.search.candidates.some((c) => c.kind === "asset" && c.provider.id === "fixture"),
+  );
+}
+
+export function TopBar({ project, error, onSettings, onReset }: TopBarProps): React.ReactElement {
   const title = project?.project.title ?? "Speech-to-Scene";
   const sceneCount = project?.sceneCount ?? 0;
-  const producingCount = project?.producingSceneCount ?? 0;
-  const processedCount = producingCount;
+  const searchedCount = project?.searchedSceneCount ?? 0;
+  const fixtureMode = isFixtureProject(project);
 
   return (
     <header className="topbar">
@@ -23,7 +38,7 @@ export function TopBar({ project, error }: TopBarProps): React.ReactElement {
         <span>{title}</span>
         {project && (
           <span className="status-pill ok">
-            {processedCount} / {sceneCount} 场景已处理
+            {searchedCount} / {sceneCount} 场景已搜索
           </span>
         )}
         {error && (
@@ -40,14 +55,29 @@ export function TopBar({ project, error }: TopBarProps): React.ReactElement {
         )}
       </div>
       <div className="actions">
-        <button className="btn" disabled title="下一任务接入">
-          <Settings size={14} />
-          验证项目
-        </button>
-        <button className="btn primary" disabled title="下一任务接入">
-          保存决策
-        </button>
+        {onReset && (
+          <button
+            className="btn"
+            type="button"
+            onClick={onReset}
+            title="重新上传文稿（会覆盖当前项目）"
+          >
+            <Upload size={14} />
+            重新上传
+          </button>
+        )}
+        {onSettings && (
+          <button className="btn" type="button" onClick={onSettings} title="配置 API Key">
+            <Settings size={14} />
+            设置
+          </button>
+        )}
       </div>
+      {fixtureMode && (
+        <div className="fixture-banner">
+          当前为测试模式（fixture）：场景与素材为假数据。请在「设置」配置 API Key 后点「重新上传」重新生成。
+        </div>
+      )}
     </header>
   );
 }

@@ -241,6 +241,7 @@ describe("AssetRightsSchema", () => {
 describe("AssetCandidateSchema", () => {
   // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
   const baseCandidate = () => ({
+    kind: "asset" as const,
     id: "candidate-001",
     provider: {
       id: "pexels",

@@ -99,7 +99,6 @@ async function writeProjectFile(projectRoot: string): Promise<void> {
           candidates: [],
           lastSearchedAt: undefined,
         },
-        review: { kind: "pending" as const },
       },
     ],
   };

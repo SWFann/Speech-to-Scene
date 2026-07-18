@@ -6,8 +6,6 @@ import {
   SourceAnchorSchema,
   SearchQuerySchema,
   SceneSearchSchema,
-  ReviewDecisionSchema,
-  LocalAssetSchema,
   SceneSchema,
 } from "../../src/domain/scene-schema.js";
 
@@ -143,6 +141,7 @@ describe("SearchQuerySchema", () => {
 describe("SceneSearchSchema", () => {
   // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
   const baseCandidate = () => ({
+    kind: "asset" as const,
     id: "candidate-001",
     provider: {
       id: "pexels",
@@ -232,143 +231,13 @@ describe("SceneSearchSchema", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ReviewDecisionSchema
-// ---------------------------------------------------------------------------
-
-describe("ReviewDecisionSchema", () => {
-  it("accepts pending", () => {
-    expect(ReviewDecisionSchema.parse({ kind: "pending" })).toEqual({ kind: "pending" });
-    expect(ReviewDecisionSchema.parse({ kind: "pending", note: "Will review later" })).toEqual({
-      kind: "pending",
-      note: "Will review later",
-    });
-  });
-
-  it("accepts skipped", () => {
-    expect(
-      ReviewDecisionSchema.parse({
-        kind: "skipped",
-        decidedAt: "2026-07-13T10:00:00Z",
-      }),
-    ).toBeDefined();
-  });
-
-  it("accepts candidate_selected", () => {
-    const decision = {
-      kind: "candidate_selected" as const,
-      selection: {
-        selectedAt: "2026-07-13T10:00:00Z",
-        candidate: {
-          id: "candidate-001",
-          provider: {
-            id: "pexels",
-            name: "Pexels",
-            homepageUrl: "https://www.pexels.com",
-            termsUrl: "https://www.pexels.com/terms",
-            policyRevision: "1.0.0",
-            termsCheckedAt: "2026-07-13T10:00:00Z",
-          },
-          providerAssetId: "photo-12345",
-          mediaType: "photo" as const,
-          thumbnailUrl: "https://images.pexels.com/photos/12345/thumb.jpg",
-          sourcePageUrl: "https://www.pexels.com/photo/12345",
-          width: 1920,
-          height: 1080,
-          orientation: "landscape" as const,
-          creator: { name: "John Doe" },
-          rights: {
-            status: "unknown" as const,
-            attributionRequired: false,
-            commercialUse: "unclear" as const,
-            derivatives: "unclear" as const,
-            verifiedAt: "2026-07-13T10:00:00Z",
-            evidence: {
-              capturedAt: "2026-07-13T10:00:00Z",
-              referenceUrl: "https://example.com/terms",
-              fields: {},
-            },
-          },
-          retrievedAt: "2026-07-13T10:00:00Z",
-          matchedQueryId: "query-001",
-          rank: 1,
-        },
-      },
-    };
-    expect(ReviewDecisionSchema.parse(decision)).toBeDefined();
-  });
-
-  it("accepts local_asset_attached", () => {
-    const decision = {
-      kind: "local_asset_attached" as const,
-      localAsset: {
-        relativePath: "assets/scene-001/image.jpg",
-        originalFileName: "image.jpg",
-        mimeType: "image/jpeg",
-        sizeBytes: 1024,
-        sha256: "a".repeat(64),
-        importedAt: "2026-07-13T10:00:00Z",
-        provenance: { kind: "user_owned" as const },
-      },
-    };
-    expect(ReviewDecisionSchema.parse(decision)).toBeDefined();
-  });
-
-  it("rejects unknown kind", () => {
-    expect(() => ReviewDecisionSchema.parse({ kind: "unknown" })).toThrow();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// LocalAssetSchema
-// ---------------------------------------------------------------------------
-
-describe("LocalAssetSchema", () => {
-  // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-  const baseLocalAsset = () => ({
-    relativePath: "assets/scene-001/image.jpg",
-    originalFileName: "image.jpg",
-    mimeType: "image/jpeg",
-    sizeBytes: 1024,
-    sha256: "a".repeat(64),
-    importedAt: "2026-07-13T10:00:00Z",
-    provenance: { kind: "user_owned" as const },
-  });
-
-  it("accepts valid local asset", () => {
-    expect(LocalAssetSchema.parse(baseLocalAsset())).toBeDefined();
-  });
-
-  it("rejects relativePath not under assets/", () => {
-    expect(() =>
-      LocalAssetSchema.parse({
-        ...baseLocalAsset(),
-        relativePath: "external/image.jpg",
-      }),
-    ).toThrow();
-  });
-
-  it("rejects invalid MIME type", () => {
-    expect(() =>
-      LocalAssetSchema.parse({
-        ...baseLocalAsset(),
-        mimeType: "application/pdf",
-      }),
-    ).toThrow();
-  });
-
-  it("rejects invalid SHA-256", () => {
-    expect(() =>
-      LocalAssetSchema.parse({
-        ...baseLocalAsset(),
-        sha256: "not-a-valid-hash",
-      }),
-    ).toThrow();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // SceneSchema
 // ---------------------------------------------------------------------------
+//
+// Note: ReviewDecisionSchema and LocalAssetSchema were removed in the Phase 1
+// material-discovery redesign. The review state machine (selection/skip/
+// local-asset) no longer exists; scenes only carry LLM-suggested metadata
+// and on-demand search results.
 
 describe("SceneSchema", () => {
   // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
@@ -403,7 +272,6 @@ describe("SceneSchema", () => {
       ],
       candidates: [],
     },
-    review: { kind: "pending" as const },
   });
 
   it("accepts valid scene", () => {
@@ -431,8 +299,10 @@ describe("SceneSchema", () => {
     ).toThrow();
   });
 
-  it("rejects stock_asset scene without enabled query", () => {
-    expect(() =>
+  it("accepts stock_asset scene without enabled query (gating removed)", () => {
+    // Phase 1 redesign: visualPlan.decision no longer gates search. A
+    // stock_asset scene with no enabled query is now valid.
+    expect(
       SceneSchema.parse({
         ...baseScene(),
         visualPlan: {
@@ -453,6 +323,6 @@ describe("SceneSchema", () => {
           candidates: [],
         },
       }),
-    ).toThrow();
+    ).toBeDefined();
   });
 });

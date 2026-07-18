@@ -72,6 +72,7 @@ export function createMinimalProject(): ReviewProjectView {
           ],
           candidates: [
             {
+              kind: "asset" as const,
               id: "candidate-001",
               provider: {
                 id: "fixture",
@@ -110,7 +111,6 @@ export function createMinimalProject(): ReviewProjectView {
           enabledQueryCount: 1,
           candidateCount: 1,
         },
-        review: { kind: "pending" },
         status: "candidates_ready",
       },
       {
@@ -138,13 +138,12 @@ export function createMinimalProject(): ReviewProjectView {
           enabledQueryCount: 0,
           candidateCount: 0,
         },
-        review: { kind: "pending" },
         status: "pending",
       },
     ],
     status: "planned",
     sceneCount: 2,
-    producingSceneCount: 1,
+    searchedSceneCount: 1,
     lastGenerationAt: "2026-07-16T10:00:00.000Z",
     sceneStatuses: [
       { sceneId: "scene-001", sceneOrder: 1, status: "candidates_ready" },
@@ -153,52 +152,17 @@ export function createMinimalProject(): ReviewProjectView {
   };
 }
 
+/**
+ * Phase 1 redesign: local asset and selected candidate review states have
+ * been removed. These helpers are retained as no-ops for backward
+ * compatibility with any remaining imports.
+ */
 export function createProjectWithLocalAsset(): ReviewProjectView {
-  const project = createMinimalProject();
-  const scene = project.scenes[0]!;
-  return {
-    ...project,
-    scenes: [
-      {
-        ...scene,
-        review: {
-          kind: "local_asset_attached",
-          localAsset: {
-            relativePath: "assets/scene-001/abc123.png",
-            originalFileName: "photo.png",
-            mimeType: "image/png",
-            sizeBytes: 102400,
-            sha256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-            importedAt: "2026-07-16T11:00:00.000Z",
-            provenance: { kind: "user_owned" },
-          },
-        },
-        status: "local_attached",
-      },
-      ...project.scenes.slice(1),
-    ],
-  };
+  // Review state machine removed in Phase 1 redesign — return base project.
+  return createMinimalProject();
 }
 
 export function createProjectWithSelectedCandidate(): ReviewProjectView {
-  const project = createMinimalProject();
-  const scene = project.scenes[0]!;
-  const candidate = scene.search.candidates[0]!;
-  return {
-    ...project,
-    scenes: [
-      {
-        ...scene,
-        review: {
-          kind: "candidate_selected" as const,
-          selection: {
-            selectedAt: "2026-07-16T12:00:00.000Z",
-            candidate,
-          },
-        },
-        status: "selected",
-      },
-      ...project.scenes.slice(1),
-    ],
-  };
+  // Review state machine removed in Phase 1 redesign — return base project.
+  return createMinimalProject();
 }

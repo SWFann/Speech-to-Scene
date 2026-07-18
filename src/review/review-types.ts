@@ -8,15 +8,14 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ProjectRepository } from "../application/ports/project-repository.js";
-import type { LocalAssetWriter } from "../application/ports/local-asset-writer.js";
 import type { ReviewProjectView } from "../application/get-review-project.js";
 import type { UpdateSceneDeps } from "../application/update-scene.js";
 import type { UpdateSceneQueriesDeps } from "../application/update-scene-queries.js";
-import type { SelectCandidateDeps } from "../application/select-candidate.js";
-import type { SkipSceneDeps } from "../application/skip-scene.js";
-import type { AttachLocalAssetDeps } from "../application/attach-local-asset.js";
 import type { SearchProjectAssetsResult } from "../application/search-project-assets.js";
 import type { SpeechToSceneProject } from "../domain/project-schema.js";
+import type { SettingsView } from "../application/ports/settings-store.js";
+import type { CreateProjectResult } from "../application/create-project.js";
+import type { PlanProjectResult } from "../application/plan-script.js";
 
 // ---------------------------------------------------------------------------
 // Server configuration
@@ -62,8 +61,6 @@ export interface ReviewServerConfig {
 export interface ReviewServerDependencies {
   /** Project repository (used for loading/saving projects). */
   readonly repository: ProjectRepository;
-  /** Local asset writer (used for writing uploaded files). M4-07 */
-  readonly assetWriter: LocalAssetWriter;
   /** Application use case: getReviewProject(projectRoot, repository). */
   readonly getReviewProject: (
     projectRoot: string,
@@ -79,26 +76,23 @@ export interface ReviewServerDependencies {
   /**
    * Application use case: searchSceneAssets(input).
    *
-   * M4-05: Bound at the composition root with provider/cache factories.
-   * The HTTP layer calls this with a validated input object and receives
-   * the search result. Provider/cache creation is handled internally.
+   * Bound at the composition root with provider/cache factories and the link
+   * suggestion generator. The HTTP layer calls this with a validated input
+   * object and receives the search result. Provider/cache creation is handled
+   * internally.
    */
   readonly searchSceneAssets: (input: unknown) => Promise<SearchProjectAssetsResult>;
 
-  /** Application use case: selectCandidate(input, deps). M4-06 */
-  readonly selectCandidate: (
-    input: unknown,
-    deps: SelectCandidateDeps,
-  ) => Promise<SpeechToSceneProject>;
-
-  /** Application use case: skipScene(input, deps). M4-06 */
-  readonly skipScene: (input: unknown, deps: SkipSceneDeps) => Promise<SpeechToSceneProject>;
-
-  /** Application use case: attachLocalAsset(input, deps). M4-07 */
-  readonly attachLocalAsset: (
-    input: unknown,
-    deps: AttachLocalAssetDeps,
-  ) => Promise<SpeechToSceneProject>;
+  /** Application: load settings (desensitized view). Wired in E1. */
+  readonly getSettings?: () => Promise<SettingsView>;
+  /** Application: save settings (merged, returns desensitized view). Wired in E1. */
+  readonly saveSettings?: (input: unknown) => Promise<SettingsView>;
+  /** Application: create project from in-memory content bytes. Wired in E1. */
+  readonly createProjectFromContent?: (input: unknown) => Promise<CreateProjectResult>;
+  /** Application: plan project (slice script into scenes). Wired in E1. */
+  readonly planProject?: (input: unknown) => Promise<PlanProjectResult>;
+  /** Application: search all project assets (whole-project search). Wired in E1. */
+  readonly searchProjectAssets?: (input: unknown) => Promise<SearchProjectAssetsResult>;
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "build:all": "pnpm build && pnpm web:build",
+    "start": "pnpm build:all && node dist/cli/index.js review ./workspace/default",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"tests/**/*.tsx\" \"web/**/*.ts\" \"web/**/*.tsx\" \"web/**/*.css\" \"docs/**/*.md\" \".github/**/*.yml\" \"catalog/**/*.yaml\" \"*.{json,js,md,yaml}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"tests/**/*.tsx\" \"web/**/*.ts\" \"web/**/*.tsx\" \"web/**/*.css\" \"docs/**/*.md\" \".github/**/*.yml\" \"catalog/**/*.yaml\" \"*.{json,js,md,yaml}\"",
@@ -31,7 +32,10 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p web/tsconfig.json",
     "web:build": "vite build --config web/vite.config.ts",
     "web:dev": "vite --config web/vite.config.ts",
-    "web:preview": "vite preview --config web/vite.config.ts"
+    "web:preview": "vite preview --config web/vite.config.ts",
+    "dev:server": "tsx src/cli/index.ts review ./workspace/default --no-open",
+    "dev:web": "vite --config web/vite.config.ts",
+    "dev": "tsx src/cli/index.ts review ./workspace/default --no-open & vite --config web/vite.config.ts"
   },
   "dependencies": {
     "commander": "^15.0.0",
