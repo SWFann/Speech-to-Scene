@@ -134,6 +134,10 @@ describe("StepFunScriptPlanner", () => {
     expect(messages[0]!.content).toContain("untrusted source material");
     expect(messages[1]!.content).toContain("Hello world");
     expect(messages[0]!.content).toContain("subject + action + environment + shot");
+    expect(messages[0]!.content).toContain("2-4 supporting visual scenes");
+    expect(messages[0]!.content).toContain(
+      "named person, creator, brand, film, or exact original clip",
+    );
   });
 
   it("returns providerId and capabilities", () => {

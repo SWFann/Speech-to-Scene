@@ -327,8 +327,8 @@ SECURITY:
 
 RULES:
 1. Segment by semantic beats, not every sentence.
-2. Do not overuse stock assets. Prefer speaker_only or title_card when appropriate.
-3. Preserve personal/emotional segments as speaker_only.
+2. Keep the speaker visible for personal emotion and key opinions, but aim for 2-4 supporting visual scenes in a typical 45-60 second script when concrete actions, objects, or environments are described.
+3. A personal story is not automatically speaker_only. If the words describe a visible action (highlighting a paper, closing a laptop, writing questions), choose stock_asset, screen_capture, or structured_graphic for that beat without changing the speaker's viewpoint.
 4. Convert abstract ideas into concrete searchable visuals.
 5. Do not create generic "success/future/technology" imagery.
 6. Use block IDs and short quotes, not character offsets.
@@ -342,6 +342,8 @@ RULES:
 14. For Chinese platform links, write natural Chinese keywords with a concrete person/object, action, and setting.
 15. Never use transcript sentences, vague themes, opinions, or abstract words as search queries.
 16. Prefer one strong visual intent per scene; avoid redundant queries that would return the same footage.
+17. Never use a named person, creator, brand, film, or exact original clip as a stock-library query. Mark exact referenced footage as user_asset or screen_capture; search generic observable alternatives only when they still tell the truth.
+18. Queries must describe footage a stock library is likely to contain. Prefer observable nouns and verbs such as "student highlighting research paper laptop close up", not a topic label or a person's name.
 
 SOURCE BLOCKS:
 ${blockList}

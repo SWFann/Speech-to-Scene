@@ -277,7 +277,7 @@ export async function planProject(
       willModify: project.project.assetUsePolicy.willModify,
     },
     maxScenes: input.maxScenes,
-    promptVersion: "plan-script-v1",
+    promptVersion: "plan-script-v2",
   };
 
   let plannerResult;
@@ -343,7 +343,7 @@ export async function planProject(
     plannerProvider: planner.providerId,
     apiProtocol: plannerResult.apiProtocol,
     model: plannerResult.model ?? "unknown",
-    promptVersion: "plan-script-v1",
+    promptVersion: "plan-script-v2",
     plannerOutputSchemaVersion: "0.1",
     sourceBlockVersion: "0.1",
     generatedAt: now.toISOString(),
@@ -388,7 +388,7 @@ export async function planProject(
     status: "planned",
     sceneCount: scenes.length,
     provider: planner.providerId,
-    promptVersion: "plan-script-v1",
+    promptVersion: "plan-script-v2",
     projectRoot: resolvedProjectRoot,
   };
 }
