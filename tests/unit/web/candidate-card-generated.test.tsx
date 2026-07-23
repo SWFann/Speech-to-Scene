@@ -85,10 +85,11 @@ describe("CandidateCard — generated kind", () => {
     expect(link).not.toBeNull();
   });
 
-  it("7. renders 无版权限制 tag", () => {
+  it("7. does not make a blanket copyright claim", () => {
     const candidate = makeGeneratedCandidate();
     render(<CandidateCard candidate={candidate} />);
-    expect(screen.getByText("无版权限制")).toBeDefined();
+    expect(screen.getByText("发布前请自行确认使用权")).toBeDefined();
+    expect(screen.queryByText("无版权限制")).toBeNull();
   });
 
   it("8. renders thumbnail image", () => {

@@ -21,11 +21,7 @@ import { SpeechToSceneProjectSchema } from "../../src/domain/project-schema.js";
 
 const FIXED_NOW = "2026-07-13T10:00:00.000Z";
 
-function makeProject(
-  title: string,
-  updatedAt: string,
-  sceneCount = 1,
-): SpeechToSceneProject {
+function makeProject(title: string, updatedAt: string, sceneCount = 1): SpeechToSceneProject {
   const scenes = Array.from({ length: sceneCount }, (_, i) => ({
     id: `scene-${String(i + 1).padStart(3, "0")}`,
     order: i + 1,
@@ -96,9 +92,7 @@ function makeScanner(entries: readonly WorkspaceDirEntry[]): WorkspaceScanner {
   };
 }
 
-function makeRepository(
-  projects: Record<string, SpeechToSceneProject>,
-): ProjectRepository {
+function makeRepository(projects: Record<string, SpeechToSceneProject>): ProjectRepository {
   return {
     exists: (root) => Promise.resolve(projects[root] !== undefined),
     create: () => Promise.resolve(),
@@ -186,9 +180,7 @@ describe("listProjects", () => {
   });
 
   it("returns empty list when workspace has no projects", async () => {
-    const entries: WorkspaceDirEntry[] = [
-      { name: "empty-dir", hasProject: false },
-    ];
+    const entries: WorkspaceDirEntry[] = [{ name: "empty-dir", hasProject: false }];
     const repo = makeRepository({});
 
     const result = await listProjects(WORKSPACE, makeScanner(entries), repo);

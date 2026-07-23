@@ -13,6 +13,7 @@ import type {
   AssetSearchInput,
   AssetSearchResult,
   AssetCandidate,
+  AssetRights,
   AssetProviderSnapshot,
   ProviderCapabilities,
   ProviderWarning,
@@ -24,10 +25,20 @@ import { AppError } from "../../shared/errors.js";
 // ---------------------------------------------------------------------------
 
 const OPENVERSE_PROVIDER_ID = "openverse";
-const OPENVERSE_POLICY_REVISION = "openverse-policy-2026-07";
+const OPENVERSE_POLICY_REVISION = "openverse-policy-2026-07-rights-v2";
 const OPENVERSE_TERMS_URL = "https://creativecommons.org/about/cclicenses/";
 const OPENVERSE_BASE_URL = "https://api.openverse.org/v1";
 const DEFAULT_TIMEOUT_MS = 15_000;
+const ALL_SUPPORTED_LICENSES = [
+  "cc0",
+  "pdm",
+  "by",
+  "by-sa",
+  "by-nd",
+  "by-nc",
+  "by-nc-sa",
+  "by-nc-nd",
+] as const;
 
 const OPENVERSE_SNAPSHOT: AssetProviderSnapshot = {
   id: OPENVERSE_PROVIDER_ID,
@@ -101,6 +112,14 @@ interface OpenverseSearchResponse {
     readonly license_url: string | null;
     readonly attribution: string | null;
   }>;
+}
+
+interface OpenverseLicenseMapping {
+  readonly status: AssetRights["status"];
+  readonly attributionRequired: boolean;
+  readonly commercialUse: AssetRights["commercialUse"];
+  readonly derivatives: AssetRights["derivatives"];
+  readonly restrictions: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -190,11 +209,13 @@ export class OpenverseAssetProvider implements AssetProvider {
   }
 
   private async searchPhotos(input: AssetSearchInput): Promise<AssetCandidate[]> {
+    const policyFilter = this.mapPolicyToApiFilter(input.projectPolicy);
     const params = new URLSearchParams({
       q: input.query,
       page_size: String(Math.min(input.perPage, 20)),
       page: String(input.page),
-      license_type: "all",
+      license_type: policyFilter.licenseType,
+      license: policyFilter.licenses.join(","),
       mature: "false",
     });
 
@@ -204,8 +225,19 @@ export class OpenverseAssetProvider implements AssetProvider {
     const now = new Date().toISOString();
 
     return response.results
-      .filter((result) => result.thumbnail !== null && result.url !== null)
-      .map((result, index) => this.mapPhoto(result, input, index + 1, now));
+      .filter(
+        (result) =>
+          result.thumbnail !== null &&
+          result.url !== null &&
+          result.width !== null &&
+          result.height !== null &&
+          result.width > 1 &&
+          result.height > 1,
+      )
+      .flatMap((result, index) => {
+        const candidate = this.mapPhoto(result, input, index + 1, now);
+        return candidate ? [candidate] : [];
+      });
   }
 
   private mapPhoto(
@@ -213,12 +245,22 @@ export class OpenverseAssetProvider implements AssetProvider {
     input: AssetSearchInput,
     rank: number,
     now: string,
-  ): AssetCandidate {
-    const width = result.width ?? 0;
-    const height = result.height ?? 0;
+  ): AssetCandidate | null {
+    const width = result.width!;
+    const height = result.height!;
     const orientation = this.inferOrientation(width, height);
-    const licenseUrl = result.license_url ?? OPENVERSE_TERMS_URL;
-    const attribution = result.attribution ?? result.creator ?? "Unknown";
+    const sourcePageUrl = this.ensureHttps(result.foreign_landing_url ?? result.url!);
+    const licenseUrl = result.license_url ?? undefined;
+    const attribution = result.attribution ?? result.creator ?? undefined;
+    const licenseCode = result.license.trim().toLowerCase();
+    const license = this.mapLicense(licenseCode);
+
+    if (
+      (license.attributionRequired && !attribution) ||
+      (license.status === "open_license" && !licenseUrl)
+    ) {
+      return null;
+    }
 
     return {
       kind: "asset" as const,
@@ -227,7 +269,7 @@ export class OpenverseAssetProvider implements AssetProvider {
       providerAssetId: result.id,
       mediaType: "photo",
       thumbnailUrl: this.ensureHttps(result.thumbnail!),
-      sourcePageUrl: this.ensureHttps(result.foreign_landing_url ?? result.url!),
+      sourcePageUrl,
       width: width > 0 ? width : 1,
       height: height > 0 ? height : 1,
       orientation,
@@ -236,24 +278,24 @@ export class OpenverseAssetProvider implements AssetProvider {
         ...(result.creator_url !== null ? { profileUrl: result.creator_url } : {}),
       },
       rights: {
-        status: "open_license",
-        licenseCode: result.license,
-        licenseName: `${result.license} ${result.license_version}`.trim(),
-        licenseUrl,
-        attributionRequired: true,
-        attributionText: attribution,
-        commercialUse: "allowed",
-        derivatives: "allowed",
-        restrictions: [],
+        status: license.status,
+        licenseCode,
+        licenseName: this.formatLicenseName(licenseCode, result.license_version),
+        ...(licenseUrl ? { licenseUrl } : {}),
+        attributionRequired: license.attributionRequired,
+        ...(attribution ? { attributionText: attribution } : {}),
+        commercialUse: license.commercialUse,
+        derivatives: license.derivatives,
+        restrictions: license.restrictions,
         verifiedAt: now,
         evidence: {
           capturedAt: now,
-          referenceUrl: licenseUrl,
+          referenceUrl: licenseUrl ?? sourcePageUrl,
           fields: {
             policyRevision: OPENVERSE_POLICY_REVISION,
             source: "openverse_api",
             photoId: result.id,
-            license: result.license,
+            license: licenseCode,
             licenseVersion: result.license_version,
           },
         },
@@ -262,6 +304,119 @@ export class OpenverseAssetProvider implements AssetProvider {
       matchedQueryId: input.queryId,
       rank,
     };
+  }
+
+  private mapPolicyToApiFilter(policy: AssetSearchInput["projectPolicy"]): {
+    readonly licenseType: string;
+    readonly licenses: readonly string[];
+  } {
+    if (policy.intendedUse === "commercial_capable") {
+      return policy.willModify
+        ? {
+            licenseType: "commercial,modification",
+            licenses: ["cc0", "pdm", "by", "by-sa"],
+          }
+        : {
+            licenseType: "commercial",
+            licenses: ["cc0", "pdm", "by", "by-sa", "by-nd"],
+          };
+    }
+
+    if (policy.willModify) {
+      return {
+        licenseType: "modification",
+        licenses: ["cc0", "pdm", "by", "by-sa", "by-nc", "by-nc-sa"],
+      };
+    }
+
+    return {
+      licenseType: "all",
+      licenses: ALL_SUPPORTED_LICENSES,
+    };
+  }
+
+  private mapLicense(licenseCode: string): OpenverseLicenseMapping {
+    switch (licenseCode) {
+      case "cc0":
+      case "pdm":
+        return {
+          status: "public_domain",
+          attributionRequired: false,
+          commercialUse: "allowed",
+          derivatives: "allowed",
+          restrictions: [],
+        };
+      case "by":
+        return {
+          status: "open_license",
+          attributionRequired: true,
+          commercialUse: "allowed",
+          derivatives: "allowed",
+          restrictions: [],
+        };
+      case "by-sa":
+        return {
+          status: "open_license",
+          attributionRequired: true,
+          commercialUse: "allowed",
+          derivatives: "share_alike",
+          restrictions: ["share_alike"],
+        };
+      case "by-nc":
+        return {
+          status: "open_license",
+          attributionRequired: true,
+          commercialUse: "disallowed",
+          derivatives: "allowed",
+          restrictions: ["noncommercial_only"],
+        };
+      case "by-nc-sa":
+        return {
+          status: "open_license",
+          attributionRequired: true,
+          commercialUse: "disallowed",
+          derivatives: "share_alike",
+          restrictions: ["noncommercial_only", "share_alike"],
+        };
+      case "by-nd":
+        return {
+          status: "open_license",
+          attributionRequired: true,
+          commercialUse: "allowed",
+          derivatives: "disallowed",
+          restrictions: ["no_derivatives"],
+        };
+      case "by-nc-nd":
+        return {
+          status: "open_license",
+          attributionRequired: true,
+          commercialUse: "disallowed",
+          derivatives: "disallowed",
+          restrictions: ["noncommercial_only", "no_derivatives"],
+        };
+      default:
+        return {
+          status: "unknown",
+          attributionRequired: true,
+          commercialUse: "unclear",
+          derivatives: "unclear",
+          restrictions: ["verify_license"],
+        };
+    }
+  }
+
+  private formatLicenseName(licenseCode: string, version: string): string {
+    const names: Readonly<Record<string, string>> = {
+      cc0: "CC0",
+      pdm: "Public Domain Mark",
+      by: "CC BY",
+      "by-sa": "CC BY-SA",
+      "by-nc": "CC BY-NC",
+      "by-nc-sa": "CC BY-NC-SA",
+      "by-nd": "CC BY-ND",
+      "by-nc-nd": "CC BY-NC-ND",
+    };
+    return `${names[licenseCode] ?? licenseCode} ${version}`.trim();
   }
 
   private inferOrientation(width: number, height: number): "portrait" | "landscape" | "square" {

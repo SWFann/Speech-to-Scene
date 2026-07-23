@@ -22,13 +22,12 @@ All incoming requests are validated against the configured `Host` header before 
 
 Mutating requests (POST, PUT, PATCH) must include an `Origin` header that matches the local server origin (`http://127.0.0.1:<port>`). Requests without an `Origin` header from non-browser clients (e.g., `curl`) are also accepted. This prevents CSRF attacks from browser-based origins.
 
-### Session token
+### Browser boundary
 
-- A random session token is generated at server startup and printed to the terminal.
-- All mutating routes require the `X-S2S-Session: <token>` header.
-- `GET /api/project` is token-gated (requires the token even though it is a GET).
-- `GET /api/health` does not require a token. It may return local diagnostics such as `projectRoot`, `host`, `port`, and `version`, but it never returns the session token, full project document, source script content, candidates, or uploaded file contents.
-- The token is never included in error responses or the `/api/health` payload.
+Phase 3 removed the URL/session-token mechanism. The server relies on loopback
+binding, strict Host validation, and same-origin validation for browser
+mutations. Secret provider settings are write-only: read APIs return only
+boolean “configured” flags.
 
 ### Security headers
 
@@ -44,7 +43,7 @@ Static file responses (M5-03) include a different CSP that allows the React SPA 
 - `Content-Security-Policy: default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'`
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
-- `Referrer-Policy: no-referrer` (prevents leaking `?token=` in the URL to third-party thumbnail hosts)
+- `Referrer-Policy: no-referrer` (prevents leaking the local page URL to thumbnail hosts)
 - `Cache-Control: no-store` for HTML files; `public, max-age=31536000, immutable` for hashed assets
 
 For `405 Method Not Allowed` responses, an `Allow` header is included.
@@ -123,7 +122,19 @@ Since M5-03, the review server serves the built React Review Board from `web/dis
 - Stack traces are never returned to clients.
 - Absolute filesystem paths are never included in error responses.
 - Raw provider API responses are never stored or returned.
-- The `X-S2S-Session` token is never included in error messages.
+- Provider credentials and Authorization headers are never included in error messages.
+
+### Generated image persistence
+
+Provider-generated images are copied locally before they are added to a project.
+The downloader:
+
+- accepts only standard HTTPS URLs without credentials or custom ports;
+- rejects localhost, literal private addresses, and hostnames resolving to private addresses;
+- validates every redirect target, with a maximum of three redirects;
+- limits responses to 15 MiB while streaming;
+- requires an allowed image MIME type to match PNG, JPEG, or WebP magic bytes;
+- derives the local extension from validated bytes and uses exclusive file creation.
 
 ## API key handling
 

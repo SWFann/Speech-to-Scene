@@ -41,6 +41,37 @@ async function writeFile(dir: string, name: string, content: string): Promise<vo
   await fs.writeFile(path.join(dir, name), content, "utf-8");
 }
 
+function validProjectJson(): string {
+  return JSON.stringify({
+    schemaVersion: "0.1",
+    project: {
+      id: "project-test",
+      title: "Test project",
+      createdAt: "2026-07-13T10:00:00.000Z",
+      updatedAt: "2026-07-13T10:00:00.000Z",
+      language: "zh-CN",
+      aspectRatio: "9:16",
+      style: "knowledge",
+      assetUsePolicy: {
+        intendedUse: "commercial_capable",
+        willModify: true,
+      },
+    },
+    source: {
+      path: "script.md",
+      originalFileName: "script.md",
+      sha256: "a".repeat(64),
+      encoding: "utf-8",
+      sizeBytes: 1,
+      textLengthUtf16: 1,
+      offsetUnit: "utf16_code_unit",
+      blocks: [],
+    },
+    generation: null,
+    scenes: [],
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -104,7 +135,7 @@ describe("FileSystemWorkspaceScanner", () => {
       const workspace = await makeTempDir();
       const projectDir = path.join(workspace, "to-delete");
       await fs.mkdir(projectDir);
-      await writeFile(projectDir, PROJECT_FILE_NAME, "{}");
+      await writeFile(projectDir, PROJECT_FILE_NAME, validProjectJson());
       await fs.mkdir(path.join(projectDir, "cache"));
 
       await scanner.deleteProject(projectDir);
@@ -122,6 +153,7 @@ describe("FileSystemWorkspaceScanner", () => {
       const siblingDir = path.join(workspace, "sibling");
       await fs.mkdir(projectDir);
       await fs.mkdir(siblingDir);
+      await writeFile(projectDir, PROJECT_FILE_NAME, validProjectJson());
       await writeFile(siblingDir, PROJECT_FILE_NAME, "{}");
 
       await scanner.deleteProject(projectDir);
@@ -133,10 +165,62 @@ describe("FileSystemWorkspaceScanner", () => {
       expect(siblingExists).toBe(true);
     });
 
+    it("refuses to delete a directory with an invalid project file", async () => {
+      const workspace = await makeTempDir();
+      const ordinaryDir = path.join(workspace, "not-a-project");
+      await fs.mkdir(ordinaryDir);
+      await writeFile(ordinaryDir, PROJECT_FILE_NAME, "{}");
+      await writeFile(ordinaryDir, "important.txt", "keep me");
+
+      await expect(scanner.deleteProject(ordinaryDir)).rejects.toThrow(
+        "valid Speech-to-Scene project",
+      );
+
+      await expect(fs.readFile(path.join(ordinaryDir, "important.txt"), "utf-8")).resolves.toBe(
+        "keep me",
+      );
+    });
+
+    it("refuses to delete a symlinked project directory", async () => {
+      const workspace = await makeTempDir();
+      const outside = await makeTempDir();
+      await writeFile(outside, PROJECT_FILE_NAME, validProjectJson());
+      const linkedProject = path.join(workspace, "linked-project");
+      await fs.symlink(outside, linkedProject, "dir");
+
+      await expect(scanner.deleteProject(linkedProject)).rejects.toThrow("symbolic link");
+      await expect(fs.access(outside)).resolves.toBeUndefined();
+    });
+
+    it("restores the original project name when the final removal fails", async () => {
+      const workspace = await makeTempDir();
+      const projectDir = path.join(workspace, "busy-project");
+      await fs.mkdir(projectDir);
+      await writeFile(projectDir, PROJECT_FILE_NAME, validProjectJson());
+      await writeFile(projectDir, "important.txt", "keep me");
+      const scannerWithFailingRemove = Reflect.construct(FileSystemWorkspaceScanner, [
+        {
+          rename: fs.rename.bind(fs),
+          rm: () => Promise.reject(new Error("resource busy")),
+        },
+      ]);
+
+      await expect(scannerWithFailingRemove.deleteProject(projectDir)).rejects.toThrow(
+        "resource busy",
+      );
+
+      await expect(fs.readFile(path.join(projectDir, "important.txt"), "utf-8")).resolves.toBe(
+        "keep me",
+      );
+      expect(
+        (await fs.readdir(workspace)).filter((name) => name.startsWith(".s2s-delete-")),
+      ).toEqual([]);
+    });
+
     it("rejects path traversal in project root", async () => {
-      await expect(
-        scanner.deleteProject("/test/../../etc/passwd"),
-      ).rejects.toThrow("path traversal");
+      await expect(scanner.deleteProject("/test/../../etc/passwd")).rejects.toThrow(
+        "path traversal",
+      );
     });
   });
 });

@@ -21,30 +21,14 @@ import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
 import type { SearchCache } from "../../src/application/ports/search-cache.js";
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
 import type { AssetCandidateLink } from "../../src/domain/asset-schema.js";
+import type { AssetCandidate as PortAssetCandidate } from "../../src/application/ports/asset-provider.js";
+import { ProjectNotPlannedError } from "../../src/shared/errors.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function createMockCandidate(
-  overrides: Partial<{
-    id: string;
-    providerAssetId: string;
-    mediaType: string;
-    thumbnailUrl: string;
-    sourcePageUrl: string;
-    width: number;
-    height: number;
-    orientation: "portrait" | "landscape" | "square";
-    creator: { name: string; profileUrl: string };
-    rights: object;
-    retrievedAt: string;
-    matchedQueryId: string;
-    rank: number;
-    previewUrl?: string;
-    durationSeconds?: number;
-  }> = {},
-): object {
+function createMockCandidate(overrides: Partial<PortAssetCandidate> = {}): PortAssetCandidate {
   return {
     kind: "asset",
     id: "fixture-photo-1-1",
@@ -263,7 +247,10 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const result = await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
+      const result = await searchProjectAssets(
+        makeInput(),
+        makeDeps(repository, provider, cache, nowFn),
+      );
 
       expect(result.projectId).toBe("test-project");
       expect(result.status).toBe("searched");
@@ -443,7 +430,10 @@ describe("searchProjectAssets", (): void => {
 
       const nowFn = (): Date => new Date();
 
-      const result = await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
+      const result = await searchProjectAssets(
+        makeInput(),
+        makeDeps(repository, provider, cache, nowFn),
+      );
 
       expect(result.cacheHits).toBeGreaterThanOrEqual(1);
       expect(result.cacheMisses).toBeGreaterThanOrEqual(1);
@@ -475,6 +465,443 @@ describe("searchProjectAssets", (): void => {
       );
       const uniqueKeys = new Set(keys);
       expect(uniqueKeys.size).toBe(keys.length);
+    });
+
+    it("ranks by orientation, rights, preview, resolution, and provider rank", async () => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const cache = createMockCache();
+      const allowedRights = createMockCandidate().rights;
+      const unclearRights = {
+        ...allowedRights,
+        commercialUse: "unclear" as const,
+        derivatives: "unclear" as const,
+      };
+      const candidates = [
+        createMockCandidate({
+          id: "wrong-orientation",
+          providerAssetId: "wrong-orientation",
+          orientation: "landscape",
+          width: 4000,
+          height: 2000,
+          rank: 1,
+        }),
+        createMockCandidate({
+          id: "unclear-rights",
+          providerAssetId: "unclear-rights",
+          orientation: "portrait",
+          width: 1080,
+          height: 1920,
+          rights: unclearRights,
+          rank: 1,
+        }),
+        createMockCandidate({
+          id: "best-quality",
+          providerAssetId: "best-quality",
+          mediaType: "video",
+          orientation: "portrait",
+          width: 2160,
+          height: 3840,
+          previewUrl: "https://example.com/preview.mp4",
+          durationSeconds: 12,
+          rank: 2,
+        }),
+        createMockCandidate({
+          id: "lower-resolution",
+          providerAssetId: "lower-resolution",
+          mediaType: "video",
+          orientation: "portrait",
+          width: 1080,
+          height: 1920,
+          previewUrl: "https://example.com/preview-low.mp4",
+          durationSeconds: 12,
+          rank: 1,
+        }),
+      ];
+      const provider: SearchProvider = {
+        providerId: "pexels",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: true, orientationFilter: true },
+        search: vi.fn().mockResolvedValue({ candidates, warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["pexels"], maxAssetsPerQuery: 20 }),
+        makeDeps(repository, provider, cache, () => new Date()),
+      );
+
+      const ids = project.scenes[0]!.search.candidates.filter(
+        (candidate) => candidate.kind === "asset",
+      ).map((candidate) => candidate.id);
+      expect(ids).toEqual(["best-quality", "lower-resolution", "wrong-orientation"]);
+    });
+
+    it("filters commercial rights that are disallowed or unclear", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "commercial_capable",
+        willModify: false,
+      };
+      const allowedRights = createMockCandidate().rights;
+      const candidates = [
+        createMockCandidate({ id: "commercial-allowed", providerAssetId: "allowed" }),
+        createMockCandidate({
+          id: "commercial-disallowed",
+          providerAssetId: "disallowed",
+          rights: { ...allowedRights, commercialUse: "disallowed" },
+        }),
+        createMockCandidate({
+          id: "commercial-unclear",
+          providerAssetId: "unclear",
+          rights: { ...allowedRights, commercialUse: "unclear" },
+        }),
+      ];
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates, warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "commercial-allowed",
+      ]);
+    });
+
+    it("filters disallowed and unclear derivatives when the project will modify assets", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "noncommercial",
+        willModify: true,
+      };
+      const allowedRights = createMockCandidate().rights;
+      const candidates = [
+        createMockCandidate({ id: "derivatives-allowed", providerAssetId: "allowed" }),
+        createMockCandidate({
+          id: "derivatives-disallowed",
+          providerAssetId: "disallowed",
+          rights: { ...allowedRights, derivatives: "disallowed" },
+        }),
+        createMockCandidate({
+          id: "derivatives-unclear",
+          providerAssetId: "unclear",
+          rights: { ...allowedRights, derivatives: "unclear" },
+        }),
+      ];
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates, warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "derivatives-allowed",
+      ]);
+    });
+
+    it("keeps editorial-only assets for an editorial project", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "editorial",
+        willModify: false,
+      };
+      const editorial = createMockCandidate({
+        id: "editorial-only",
+        providerAssetId: "editorial-only",
+        rights: {
+          ...createMockCandidate().rights,
+          status: "editorial_only",
+          commercialUse: "disallowed",
+          derivatives: "unclear",
+        },
+      });
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates: [editorial], warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "editorial-only",
+      ]);
+    });
+
+    it("keeps share-alike assets after assets with unrestricted derivatives", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "commercial_capable",
+        willModify: true,
+      };
+      const allowedRights = createMockCandidate().rights;
+      const candidates = [
+        createMockCandidate({
+          id: "share-alike",
+          providerAssetId: "share-alike",
+          orientation: "portrait",
+          width: 1080,
+          height: 1920,
+          rights: { ...allowedRights, derivatives: "share_alike" },
+          rank: 1,
+        }),
+        createMockCandidate({
+          id: "derivatives-allowed",
+          providerAssetId: "derivatives-allowed",
+          orientation: "portrait",
+          width: 1080,
+          height: 1920,
+          rank: 2,
+        }),
+      ];
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates, warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "derivatives-allowed",
+        "share-alike",
+      ]);
+    });
+
+    it("caps assets at 12 and keeps multiple providers in the first results", async () => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const cache = createMockCache();
+      const providerFor = (providerId: string): SearchProvider => ({
+        providerId,
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: true },
+        search: vi.fn().mockResolvedValue({
+          candidates: Array.from({ length: 10 }, (_, index) =>
+            createMockCandidate({
+              id: `${providerId}-${index + 1}`,
+              providerAssetId: `${index + 1}`,
+              provider: {
+                id: providerId,
+                name: providerId,
+                homepageUrl: `https://${providerId}.example.com`,
+                termsUrl: `https://${providerId}.example.com/terms`,
+                policyRevision: "1",
+                termsCheckedAt: "2025-01-01T00:00:00.000Z",
+              },
+              orientation: "portrait",
+              width: 1080,
+              height: 1920,
+              rank: index + 1,
+            }),
+          ),
+          warnings: [],
+        }),
+      });
+      const providers = new Map([
+        ["pexels", providerFor("pexels")],
+        ["openverse", providerFor("openverse")],
+      ]);
+      const deps: SearchProjectAssetsDeps = {
+        repository,
+        createProvider: (name) => Promise.resolve(providers.get(name)!),
+        createCache: () => cache,
+        linkGenerator: stubLinkGenerator,
+        now: () => new Date(),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["pexels", "openverse"], maxAssetsPerQuery: 20 }),
+        deps,
+      );
+
+      const assets = project.scenes[0]!.search.candidates.filter(
+        (candidate) => candidate.kind === "asset",
+      );
+      expect(assets).toHaveLength(12);
+      expect(new Set(assets.slice(0, 4).map((candidate) => candidate.provider.id))).toEqual(
+        new Set(["pexels", "openverse"]),
+      );
+    });
+
+    it("continues with other providers when one provider reports an operational failure", async () => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const cache = createMockCache();
+      const failing: SearchProvider = {
+        providerId: "pexels",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: true, orientationFilter: true },
+        search: vi
+          .fn()
+          .mockRejectedValue(new ProjectNotPlannedError("Pexels temporarily unavailable")),
+      };
+      const working: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: true },
+        search: vi.fn().mockResolvedValue({
+          candidates: [
+            createMockCandidate({
+              id: "openverse-result",
+              providerAssetId: "openverse-result",
+              provider: {
+                id: "openverse",
+                name: "Openverse",
+                homepageUrl: "https://openverse.org",
+                termsUrl: "https://openverse.org/terms",
+                policyRevision: "1",
+                termsCheckedAt: "2025-01-01T00:00:00.000Z",
+              },
+            }),
+          ],
+          warnings: [],
+        }),
+      };
+      const providers = new Map([
+        ["pexels", failing],
+        ["openverse", working],
+      ]);
+
+      const result = await searchProjectAssets(makeInput({ providers: [...providers.keys()] }), {
+        repository,
+        createProvider: (name) => Promise.resolve(providers.get(name)!),
+        createCache: () => cache,
+        linkGenerator: stubLinkGenerator,
+        now: () => new Date(),
+      });
+
+      expect(project.scenes[0]!.search.candidates[0]?.id).toBe("openverse-result");
+      expect(result.warnings).toContainEqual({
+        code: "provider_search_failed",
+        message: "pexels 素材搜索暂时不可用",
+        queryId: "q-1-1",
+      });
+    });
+
+    it("returns links and warnings when all real providers fail without creating Fixture", async () => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const cache = createMockCache();
+      const createProvider = vi.fn((name: string): Promise<SearchProvider> =>
+        Promise.resolve({
+          providerId: name,
+          providerPolicyRevision: "1",
+          capabilities: { photos: true, videos: false, orientationFilter: true },
+          search: vi.fn().mockRejectedValue(new ProjectNotPlannedError(`${name} unavailable`)),
+        }),
+      );
+      const linkGenerator: SearchProjectAssetsDeps["linkGenerator"] = {
+        generateLinks: ({ matchedQueryId, retrievedAt }) => [
+          {
+            kind: "link",
+            id: "manual-search",
+            platform: "bilibili",
+            searchUrl: "https://search.bilibili.com/all?keyword=test",
+            keyword: "test",
+            retrievedAt,
+            matchedQueryId,
+            rank: 1,
+            category: "video_platform",
+          },
+        ],
+      };
+
+      const result = await searchProjectAssets(makeInput({ providers: ["pexels", "openverse"] }), {
+        repository,
+        createProvider,
+        createCache: () => cache,
+        linkGenerator,
+        now: () => new Date(),
+      });
+
+      expect(createProvider.mock.calls.map(([name]) => name)).toEqual(["pexels", "openverse"]);
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.kind)).toEqual([
+        "link",
+      ]);
+      expect(result.warnings).toHaveLength(2);
+    });
+
+    it("starts provider requests for a scene concurrently", async () => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const cache = createMockCache();
+      let releaseFirst: (() => void) | undefined;
+      const firstSearch = vi.fn(
+        () =>
+          new Promise<{ candidates: []; warnings: [] }>((resolve) => {
+            releaseFirst = () => resolve({ candidates: [], warnings: [] });
+          }),
+      );
+      const secondSearch = vi.fn().mockResolvedValue({ candidates: [], warnings: [] });
+      const providers = new Map<string, SearchProvider>([
+        [
+          "pexels",
+          {
+            providerId: "pexels",
+            providerPolicyRevision: "1",
+            capabilities: { photos: true, videos: false, orientationFilter: true },
+            search: firstSearch,
+          },
+        ],
+        [
+          "openverse",
+          {
+            providerId: "openverse",
+            providerPolicyRevision: "1",
+            capabilities: { photos: true, videos: false, orientationFilter: true },
+            search: secondSearch,
+          },
+        ],
+      ]);
+
+      const pending = searchProjectAssets(makeInput({ providers: [...providers.keys()] }), {
+        repository,
+        createProvider: (name) => Promise.resolve(providers.get(name)!),
+        createCache: () => cache,
+        linkGenerator: stubLinkGenerator,
+        now: () => new Date(),
+      });
+
+      await vi.waitFor(() => expect(secondSearch).toHaveBeenCalledTimes(1));
+      releaseFirst?.();
+      await pending;
+    });
+
+    it("does not hide programming errors from providers", async () => {
+      const project = createMockProject(1);
+      const provider: SearchProvider = {
+        providerId: "pexels",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: true },
+        search: vi.fn().mockRejectedValue(new TypeError("broken provider mapping")),
+      };
+
+      await expect(
+        searchProjectAssets(
+          makeInput({ providers: ["pexels"] }),
+          makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+        ),
+      ).rejects.toThrow("broken provider mapping");
     });
 
     it("throws error when project has no generation", async (): Promise<void> => {
@@ -512,7 +939,7 @@ describe("searchProjectAssets", (): void => {
       }
     });
 
-    it("interleaves asset and link candidates (links not all at end)", async (): Promise<void> => {
+    it("keeps ranked assets before link candidates", async (): Promise<void> => {
       const project = createMockProject(1);
       const repository = createMockRepository(project);
       const { provider } = createMockProvider();
@@ -520,13 +947,12 @@ describe("searchProjectAssets", (): void => {
       const nowFn = (): Date => new Date();
 
       // Use real link generator so we get link candidates
-      const { DefaultLinkSuggestionGenerator } = await import(
-        "../../src/infrastructure/link-suggestion-generator.js"
-      );
+      const { DefaultLinkSuggestionGenerator } =
+        await import("../../src/infrastructure/link-suggestion-generator.js");
       const realLinkGen = new DefaultLinkSuggestionGenerator();
       const deps = makeDeps(repository, provider, cache, nowFn, realLinkGen);
 
-      await searchProjectAssets(makeInput(), deps);
+      const result = await searchProjectAssets(makeInput(), deps);
 
       const candidates = project.scenes[0]!.search.candidates as Array<{
         kind: string;
@@ -538,16 +964,11 @@ describe("searchProjectAssets", (): void => {
       const linkCount = candidates.filter((c) => c.kind === "link").length;
       expect(assetCount).toBeGreaterThan(0);
       expect(linkCount).toBeGreaterThan(0);
+      expect(result.totalCandidates).toBe(assetCount);
 
-      // The last candidate should NOT be a link (interleaving means links are spread out)
-      // With 2 assets and 14 links, the last item will be a link, but links should
-      // appear before the very end of all assets. Check that at least one link appears
-      // before the last asset.
-      const lastAssetIndex = Math.max(
-        ...candidates.map((c, i) => (c.kind === "asset" ? i : -1)),
-      );
+      const lastAssetIndex = Math.max(...candidates.map((c, i) => (c.kind === "asset" ? i : -1)));
       const firstLinkIndex = candidates.findIndex((c) => c.kind === "link");
-      expect(firstLinkIndex).toBeLessThanOrEqual(lastAssetIndex);
+      expect(firstLinkIndex).toBeGreaterThan(lastAssetIndex);
     });
 
     it("assigns sequential ranks after interleaving", async (): Promise<void> => {
@@ -557,9 +978,8 @@ describe("searchProjectAssets", (): void => {
       const cache = createMockCache();
       const nowFn = (): Date => new Date();
 
-      const { DefaultLinkSuggestionGenerator } = await import(
-        "../../src/infrastructure/link-suggestion-generator.js"
-      );
+      const { DefaultLinkSuggestionGenerator } =
+        await import("../../src/infrastructure/link-suggestion-generator.js");
       const realLinkGen = new DefaultLinkSuggestionGenerator();
       const deps = makeDeps(repository, provider, cache, nowFn, realLinkGen);
 

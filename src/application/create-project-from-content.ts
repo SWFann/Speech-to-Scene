@@ -47,6 +47,18 @@ export type CreateProjectFromContentResult = {
   readonly createdAt: string;
 };
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.lstat(targetPath);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export async function createProjectFromContent(
   input: CreateProjectFromContentInput,
   clock: Clock,
@@ -77,7 +89,12 @@ export async function createProjectFromContent(
     path.basename(input.originalFileName, path.extname(input.originalFileName));
   const sentinelToken = idGenerator.temporaryId();
 
-  if (await repository.exists(resolvedProjectRoot)) {
+  const rootExists = await pathExists(resolvedProjectRoot);
+  const projectExists = await repository.exists(resolvedProjectRoot);
+  if (rootExists && !projectExists) {
+    throw new ProjectAlreadyExistsError(resolvedProjectRoot);
+  }
+  if (projectExists) {
     if (!input.force) {
       throw new ProjectAlreadyExistsError(resolvedProjectRoot);
     }
@@ -112,9 +129,18 @@ export async function createProjectFromContent(
     scenes: [],
   });
 
-  await scaffolder.createRoot(resolvedProjectRoot);
-  await scaffolder.writeSentinel(resolvedProjectRoot, sentinelToken);
+  let createdRoot = false;
   try {
+    try {
+      await scaffolder.createRoot(resolvedProjectRoot);
+      createdRoot = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new ProjectAlreadyExistsError(resolvedProjectRoot);
+      }
+      throw error;
+    }
+    await scaffolder.writeSentinel(resolvedProjectRoot, sentinelToken);
     await scaffolder.createSubdirectories(resolvedProjectRoot);
     await scaffolder.copySourceDocument(resolvedProjectRoot, sourceBytes, meta.originalFileName);
     await repository.create(resolvedProjectRoot, initialProject);
@@ -128,8 +154,13 @@ export async function createProjectFromContent(
       createdAt,
     };
   } catch (error) {
-    const owns = await scaffolder.checkSentinel(resolvedProjectRoot, sentinelToken);
-    if (owns) {
+    if (error instanceof ProjectAlreadyExistsError) {
+      throw error;
+    }
+    const owns = createdRoot
+      ? await scaffolder.checkSentinel(resolvedProjectRoot, sentinelToken)
+      : false;
+    if (createdRoot || owns) {
       try {
         await fs.rm(resolvedProjectRoot, { recursive: true, force: true });
       } catch {

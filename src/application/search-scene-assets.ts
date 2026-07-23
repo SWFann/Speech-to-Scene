@@ -38,12 +38,12 @@ import { ProjectNotPlannedError, SceneNotFoundError } from "../shared/errors.js"
  * config and URL path — never from the request body.
  *
  * `providers` is an optional list of provider names to aggregate. When empty
- * or omitted, defaults to ["fixture"].
+ * or omitted, the composition root may resolve currently configured providers.
  */
 const SearchSceneAssetsInputSchema = z.strictObject({
   projectRoot: z.string().min(1, "projectRoot 不能为空"),
   sceneId: IdSchema,
-  providers: z.array(z.string().min(1)).default(["fixture"]),
+  providers: z.array(z.string().min(1)).default([]),
   maxAssetsPerQuery: z.number().int().min(1).max(50),
   refresh: z.boolean(),
 });
@@ -64,6 +64,10 @@ export type SearchSceneAssetsInput = z.infer<typeof SearchSceneAssetsInputSchema
 export interface SearchSceneAssetsDeps {
   /** Project repository (used for loading/saving projects). */
   readonly repository: ProjectRepository;
+  /** Resolves the latest configured provider names at request time. */
+  readonly resolveProviders?: (
+    requestedProviders: readonly string[],
+  ) => readonly string[] | Promise<readonly string[]>;
   /** Factory that creates a SearchProvider by name. */
   readonly createProvider: (providerName: string) => Promise<SearchProvider>;
   /** Factory that creates a SearchCache for a project root and provider. */
@@ -104,6 +108,9 @@ export async function searchSceneAssets(
   // 1. Validate input
   const parsed: SearchSceneAssetsInput = SearchSceneAssetsInputSchema.parse(input);
   const { projectRoot, sceneId, providers, maxAssetsPerQuery, refresh } = parsed;
+  const resolvedProviders = deps.resolveProviders
+    ? await deps.resolveProviders(providers)
+    : providers;
 
   // 2. Load project
   const project = await deps.repository.load(projectRoot);
@@ -131,7 +138,7 @@ export async function searchSceneAssets(
   return searchProjectAssets(
     {
       projectRoot,
-      providers,
+      providers: resolvedProviders,
       maxAssetsPerQuery,
       sceneId,
       refresh,

@@ -151,9 +151,7 @@ export interface ReviewAssetCandidateGeneratedView {
  * UI-safe view of an asset candidate (discriminated union).
  */
 export type ReviewAssetCandidateView =
-  | ReviewAssetCandidateAssetView
-  | ReviewAssetCandidateLinkView
-  | ReviewAssetCandidateGeneratedView;
+  ReviewAssetCandidateAssetView | ReviewAssetCandidateLinkView | ReviewAssetCandidateGeneratedView;
 
 /**
  * UI-safe view of a search query.
@@ -373,7 +371,9 @@ function mapLinkCandidate(candidate: AssetCandidateLink): ReviewAssetCandidateLi
   };
 }
 
-function mapGeneratedCandidate(candidate: AssetCandidateGenerated): ReviewAssetCandidateGeneratedView {
+function mapGeneratedCandidate(
+  candidate: AssetCandidateGenerated,
+): ReviewAssetCandidateGeneratedView {
   return {
     kind: "generated",
     id: candidate.id,
@@ -420,6 +420,9 @@ function mapQuery(query: {
 
 function mapScene(scene: Scene, status: SceneStatusValue): ReviewSceneView {
   const enabledQueryCount = scene.search.queries.filter((q) => q.enabled).length;
+  const usableCandidateCount = scene.search.candidates.filter(
+    (candidate) => candidate.kind !== "link",
+  ).length;
   return {
     id: scene.id,
     order: scene.order,
@@ -446,7 +449,7 @@ function mapScene(scene: Scene, status: SceneStatusValue): ReviewSceneView {
         ? { lastSearchedAt: scene.search.lastSearchedAt }
         : {}),
       enabledQueryCount,
-      candidateCount: scene.search.candidates.length,
+      candidateCount: usableCandidateCount,
     },
     status,
   };

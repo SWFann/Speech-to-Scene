@@ -9,9 +9,7 @@ import type { ProjectListItem } from "../../../web/src/types.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeProject(
-  overrides: Partial<ProjectListItem> = {},
-): ProjectListItem {
+function makeProject(overrides: Partial<ProjectListItem> = {}): ProjectListItem {
   return {
     name: "default",
     path: "default",

@@ -17,12 +17,12 @@
 
 import { z } from "zod";
 import {
-IdSchema,
-NonEmptyTrimmedStringSchema,
-PositiveIntegerSchema,
-UtcDateTimeSchema,
-HttpsUrlSchema,
-ImageUrlSchema,
+  IdSchema,
+  NonEmptyTrimmedStringSchema,
+  PositiveIntegerSchema,
+  UtcDateTimeSchema,
+  HttpsUrlSchema,
+  ImageUrlSchema,
 } from "./schema-primitives.js";
 
 // ---------------------------------------------------------------------------

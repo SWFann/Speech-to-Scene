@@ -70,9 +70,7 @@ export interface ProjectStatusView {
  *
  * This is a pure function — no side effects, no I/O.
  */
-function computeSearchSummary(
-  sceneStatuses: ReadonlyArray<{ status: string }>,
-): SearchSummary {
+function computeSearchSummary(sceneStatuses: ReadonlyArray<{ status: string }>): SearchSummary {
   const totalScenes = sceneStatuses.length;
   let pending = 0;
   let candidatesReady = 0;

@@ -29,10 +29,7 @@ import type { SpeechToSceneProject } from "../domain/project-schema.js";
 import { SpeechToSceneProjectSchema } from "../domain/project-schema.js";
 import { IdSchema, NonEmptyTrimmedStringSchema } from "../domain/schema-primitives.js";
 import { VisualDecisionSchema } from "../domain/scene-schema.js";
-import {
-  ProjectValidationError,
-  SceneNotFoundError,
-} from "../shared/errors.js";
+import { ProjectValidationError, SceneNotFoundError } from "../shared/errors.js";
 
 // ---------------------------------------------------------------------------
 // Constants

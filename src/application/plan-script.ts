@@ -36,9 +36,7 @@ import {
 import { computeSha256, decodeSourceText } from "../infrastructure/source-document.js";
 import { buildSourceBlocks } from "../planner/source-blocks.js";
 import { resolveAnchors } from "../planner/anchor-resolver.js";
-import {
-  PlannerOutputSchema,
-} from "../planner/planner-output-schema.js";
+import { PlannerOutputSchema } from "../planner/planner-output-schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,7 +277,7 @@ export async function planProject(
       willModify: project.project.assetUsePolicy.willModify,
     },
     maxScenes: input.maxScenes,
-    promptVersion: "plan-script-v1",
+    promptVersion: "plan-script-v2",
   };
 
   let plannerResult;
@@ -345,7 +343,7 @@ export async function planProject(
     plannerProvider: planner.providerId,
     apiProtocol: plannerResult.apiProtocol,
     model: plannerResult.model ?? "unknown",
-    promptVersion: "plan-script-v1",
+    promptVersion: "plan-script-v2",
     plannerOutputSchemaVersion: "0.1",
     sourceBlockVersion: "0.1",
     generatedAt: now.toISOString(),
@@ -390,7 +388,7 @@ export async function planProject(
     status: "planned",
     sceneCount: scenes.length,
     provider: planner.providerId,
-    promptVersion: "plan-script-v1",
+    promptVersion: "plan-script-v2",
     projectRoot: resolvedProjectRoot,
   };
 }

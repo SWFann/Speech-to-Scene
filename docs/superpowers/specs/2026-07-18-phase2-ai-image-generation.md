@@ -6,6 +6,7 @@
 ## 1. 目标与非目标
 
 **目标**
+
 - 每个场景可独立点「生成图片」按钮，调用 StepFun 文生图 API 生成一张图片。
 - 生成结果作为一种新的候选 `kind: "generated"`，持久化到 `scene.search.candidates`，与图库/链接候选混排在同一网格。
 - 生成图片的 prompt 由场景的 `summary` + `visualKeywords` 自动组装，用户可在生成前编辑 prompt。
@@ -13,6 +14,7 @@
 - Settings 增加 `stepImageModel` 字段，前端 SettingsPanel 增加对应配置。
 
 **非目标（阶段 2 不做）**
+
 - 不实现文生视频 provider（只定义接口 + fixture stub）。
 - 不自动下载生成图片到本地（生成的图片 URL 是临时的，用户可手动保存或重新生成）。
 - 不做批量生成（一键生成所有场景的图片）。
@@ -28,6 +30,7 @@
 5. 返回 fresh project view，前端刷新候选网格。
 
 Prompt 组装规则（后端自动，用户可改）：
+
 - 取场景 `summary` 作为主体描述。
 - 取 `visualKeywords` 前 3 个作为视觉关键词。
 - 拼接为：`{summary}，{keyword1}，{keyword2}，{keyword3}`。
@@ -41,16 +44,16 @@ Prompt 组装规则（后端自动，用户可改）：
 AssetCandidateGeneratedSchema = z.strictObject({
   kind: z.literal("generated"),
   id: IdSchema,
-  provider: AssetProviderSnapshotSchema,   // 生成器 provider 快照
-  prompt: NonEmptyTrimmedStringSchema,      // 生成用的 prompt
-  imageUrl: HttpsUrlSchema,                 // 生成图片 URL（临时）
-  thumbnailUrl: HttpsUrlSchema,             // 缩略图 URL（同 imageUrl）
+  provider: AssetProviderSnapshotSchema, // 生成器 provider 快照
+  prompt: NonEmptyTrimmedStringSchema, // 生成用的 prompt
+  imageUrl: HttpsUrlSchema, // 生成图片 URL（临时）
+  thumbnailUrl: HttpsUrlSchema, // 缩略图 URL（同 imageUrl）
   width: PositiveIntegerSchema,
   height: PositiveIntegerSchema,
   orientation: z.enum(["portrait", "landscape", "square"]),
-  model: NonEmptyTrimmedStringSchema,       // 使用的模型名
+  model: NonEmptyTrimmedStringSchema, // 使用的模型名
   generatedAt: UtcDateTimeSchema,
-  matchedQueryId: IdSchema,                 // 用场景首个 enabled query 的 id
+  matchedQueryId: IdSchema, // 用场景首个 enabled query 的 id
   rank: PositiveIntegerSchema,
 });
 ```
@@ -140,6 +143,7 @@ export async function generateSceneImage(
 ```
 
 流程：
+
 1. 加载项目 → deep clone。
 2. 找到 scene → 调 `imageGenerator.generate({ prompt, aspectRatio })`。
 3. 构造 `AssetCandidateGenerated`（rank = 当前 candidates 最大 rank + 1）。
@@ -173,6 +177,7 @@ export class StepFunImageGenerator implements ImageGenerator {
 ```
 
 StepFun 文生图 API：
+
 - 端点：`POST {baseUrl}/images/generations`（OpenAI-compatible 格式）
 - Body：`{ model, prompt, n: 1, size: "1024x1024" | "1024x1792" | "1792x1024" }`
 - 响应：`{ data: [{ url }] }`
@@ -199,8 +204,8 @@ export class FixtureImageGenerator implements ImageGenerator {
 
 ```jsonc
 {
-  "prompt": "生成图片的提示词",    // 必填，非空
-  "aspectRatio": "9:16"           // 可选，默认取项目 aspectRatio
+  "prompt": "生成图片的提示词", // 必填，非空
+  "aspectRatio": "9:16", // 可选，默认取项目 aspectRatio
 }
 ```
 
@@ -213,9 +218,11 @@ export class FixtureImageGenerator implements ImageGenerator {
 ## 7. Settings 扩展
 
 `Settings` / `SettingsView` / `SaveSettingsBodySchema` 新增：
+
 - `stepImageModel?: string`（默认 `"step-image-edit-2"`）
 
 `createImageGenerator` 工厂函数：
+
 - `fixture` → FixtureImageGenerator（无 key）
 - `stepfun` → StepFunImageGenerator（需 stepApiKey）
 
@@ -226,6 +233,7 @@ export class FixtureImageGenerator implements ImageGenerator {
 ### 8.1 SceneDetail
 
 在「搜索素材」按钮旁加「生成图片」按钮：
+
 - 点击后弹出 prompt 编辑框（预填 `buildGenerationPrompt` 结果）。
 - 确认后调 `POST /api/scenes/:sceneId/generate`。
 - 生成中显示 loading 态。
@@ -233,6 +241,7 @@ export class FixtureImageGenerator implements ImageGenerator {
 ### 8.2 CandidateCard
 
 新增 `generated` kind 卡片渲染：
+
 - 显示生成图片缩略图。
 - 显示 prompt（截断）+ model 名。
 - 「重新生成」按钮（用相同 prompt 再生成一张）。
@@ -240,6 +249,7 @@ export class FixtureImageGenerator implements ImageGenerator {
 ### 8.3 review-api.ts
 
 新增方法：
+
 ```ts
 async generateSceneImage(sceneId: string, input: {
   prompt: string;

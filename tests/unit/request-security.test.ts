@@ -227,6 +227,5 @@ describe("request-security", () => {
       expect(result.passed).toBe(false);
       expect(result.rejection!.statusCode).toBe(405);
     });
-
   });
 });

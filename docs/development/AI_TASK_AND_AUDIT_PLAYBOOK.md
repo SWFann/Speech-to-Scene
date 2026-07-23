@@ -39,11 +39,11 @@ Node.js v24.x
 pnpm 11.7.0
 ```
 
-The current implementation is Phase 1 only:
+The current implementation is a local-first production demo:
 
 ```text
-script -> semantic scenes -> asset candidates -> local review API
-       -> manual download and local asset attachment
+script -> StepFun/DeepSeek semantic scenes -> ranked multi-source assets
+       -> local Review Board -> provider download or StepFun image generation
 ```
 
 Do not implement:
@@ -52,11 +52,10 @@ Do not implement:
 - ASR;
 - timeline alignment;
 - live recording;
-- AI media generation;
 - cloud accounts;
 - databases;
 - mobile apps;
-- React Review Board UI is now in scope as of M5.
+- AI video generation (image generation is implemented);
 
 ## 2. Source of Truth Files
 
@@ -387,17 +386,18 @@ WSL 工作目录：
 - M2：script -> semantic scenes 已完成
 - M3：semantic scenes -> asset candidates 已完成
 - M4：local Review Server and Project API 已完成
-- M5：React Review Board UI 和静态服务正在实现
+- M5：React Review Board UI 和静态服务已完成
+- M6：validate、status、StepFun planner 已完成
+- 当前：多项目工作区、真实多源检索、StepFun 图片生成和易用性重构已完成
 
-Phase 1 范围：
-script -> semantic scenes -> asset candidates -> local review API
-       -> manual download and local asset attachment
+当前产品范围：
+script -> semantic scenes -> ranked real assets / platform search links
+       -> local Review Board -> local generated or user-provided media
 
-Phase 1 禁止扩张：
+禁止扩张：
 - 不做 rendering / ASR / timeline alignment / live recording
-- 不做 AI media generation
 - 不做 cloud accounts / databases / mobile apps
-- 不做 React Review Board UI 扩展，除非任务明确要求（M5 已实现核心 UI）
+- 不做 AI video generation；AI image generation 已是现有能力
 
 上一次 Codex 审计/项目状态：
 <粘贴最近一次相关审计结论，例如通过/不通过、P0/P1/P2、已知工作树状态、最后提交哈希>
@@ -406,9 +406,8 @@ Phase 1 禁止扩张：
 <明确说明只做什么>
 
 禁止事项：
-- 不做 React UI 扩展，除非任务明确要求（M5 已实现核心 UI）
 - 不做 rendering / ASR / timeline / live recording
-- 不做 AI media generation
+- 不做 AI video generation
 - 不做 cloud account / database / mobile app
 - 不调用真实外部服务的单元测试
 - 不引入无关依赖
@@ -785,7 +784,7 @@ M6 cadence:
 ```text
 M6-01  -> s2s validate ✓ (committed)
 M6-02  -> enhanced s2s status ✓ (committed)
-M6-03  -> StepFun planner + final release docs + smoke closure (current)
+M6-03  -> StepFun planner + final release docs + smoke closure ✓ (committed)
 ```
 
 M6-03 security notes:
@@ -796,7 +795,7 @@ M6-03 security notes:
 - Do not paste or commit real API keys in reports, docs, fixtures, snapshots, logs, or terminal output.
 - CI and deterministic smoke should use `fixture`, not live StepFun.
 
-## 15. M4-04B Known Requirements
+## 15. M4-04B Historical Requirements
 
 M4-04B should expose:
 
@@ -805,7 +804,10 @@ PATCH /api/scenes/:sceneId
 PUT /api/scenes/:sceneId/queries
 ```
 
-Important audit points:
+These points describe the historical M4 token-based API. Phase 3 later removed
+the session-token mechanism; use section 17 for current security requirements.
+
+Historical audit points:
 
 - token required;
 - Host gate runs before route/body parse;
@@ -828,12 +830,9 @@ Paste this into a new Codex conversation:
 请先阅读 docs/development/AI_TASK_AND_AUDIT_PLAYBOOK.md。
 
 当前项目路径：
-F:\工作盘\实习经历汇总\星星之火-创业\口播\Demo
+/home/root/SpeechToScene
 
-WSL 路径：
-/mnt/f/工作盘/实习经历汇总/星星之火-创业/口播/Demo
-
-请通过 SSH alias Ubuntu2-Codex 在 WSL 中审计。
+只在 Linux 文件系统中的上述仓库工作，不要修改旧的 /mnt/f 副本。
 
 第一步：
 git status --short
@@ -843,3 +842,81 @@ git status --short
 2. 如果审计通过，请给出下一步 Claude 指令。
 3. 如果用户要求提交，请先跑完整 checks，再 commit/push。
 ```
+
+## 17. Current Product Baseline (2026-07-23)
+
+This section is mandatory background for every new AI task. Copy it into a new
+conversation together with the task-specific acceptance criteria.
+
+Current repository and runtime:
+
+```text
+Repository: git@github.com:SWFann/Speech-to-Scene.git
+Primary Linux workspace: /home/root/SpeechToScene
+Primary branch: main
+Runtime: Node.js 24, pnpm 11, WSL/Linux filesystem
+```
+
+Implemented product behavior:
+
+- Browser-first local workflow: create a named project, choose aspect ratio and
+  content style, plan scenes, then search materials.
+- Multi-project listing, switching, and guarded deletion. Creating a project
+  never force-overwrites another directory.
+- StepFun `step-3.7-flash` planning through the official HTTPS endpoint.
+- StepFun image generation with a 512-character production prompt, correct
+  height-by-width size mapping, content-filter handling, and validated local
+  persistence.
+- Real material aggregation across configured Pexels, Pixabay, Unsplash, and
+  keyless Openverse. Fixture is explicit test/demo behavior only.
+- Policy filtering, deterministic quality ranking, source diversity, and a
+  maximum of 12 usable candidates per scene.
+- Usable assets and generated images are separate from platform search links.
+  Link cards never count as usable candidates or a completed search state.
+- Beginner-oriented two-column Review Board. Mobile keeps previous/next scene
+  navigation and the two primary actions.
+
+Security and data rules:
+
+- Real keys may exist only in ignored local `.env` or workspace
+  `.s2s/settings.json`; both must use restricted local permissions.
+- Never include a key in source, tests, docs, screenshots, logs, commits, issue
+  text, or task reports.
+- Credential-bearing provider base URLs are restricted to official HTTPS hosts.
+- Generated-image download rejects private/local targets and validates redirect
+  targets, response size, MIME, and magic bytes.
+- Project deletion requires a real parsed Speech-to-Scene project and rejects
+  symlink escapes.
+- Unit and smoke tests must not call live providers.
+
+Current UX rules:
+
+- The first viewport must present the script and an obvious next action.
+- Internal planner fields and search queries belong in progressive disclosure,
+  not ahead of materials.
+- Never mix platform links into the usable-material grid.
+- Never claim an AI-generated image is automatically copyright-free.
+- Error messages must tell a non-technical user what to do next without
+  exposing paths, stack traces, tokens, or raw provider responses.
+
+Required completion checks:
+
+```bash
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build:all
+pnpm test:dist-smoke
+git diff --check
+```
+
+Every future task prompt must include:
+
+1. repository path, branch, and latest relevant commit;
+2. the product behavior and architecture boundary affected by the task;
+3. current security, licensing, and secret-handling constraints;
+4. explicit in-scope and out-of-scope behavior;
+5. acceptance tests and all required verification commands;
+6. whether commit/push is authorized;
+7. a reminder that no prior chat context may be assumed.

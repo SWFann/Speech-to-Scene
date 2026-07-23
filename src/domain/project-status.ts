@@ -6,7 +6,7 @@
  * to evolve without migration.
  *
  * Scene status (Phase 1 material-discovery redesign):
- * 1. candidates non-empty (asset or link) → `candidates_ready`
+ * 1. usable candidates non-empty (asset or generated) → `candidates_ready`
  * 2. otherwise → `pending`
  *
  * The review state machine (selected/skipped/local_attached) has been
@@ -96,7 +96,9 @@ export function getProjectStatus(project: SpeechToSceneProject): ProjectStatus {
   const sceneStatuses: SceneStatus[] = scenes.map((scene) => ({
     sceneId: scene.id,
     sceneOrder: scene.order,
-    status: deriveSceneStatus(scene.search.candidates.length > 0),
+    status: deriveSceneStatus(
+      scene.search.candidates.some((candidate) => candidate.kind !== "link"),
+    ),
   }));
 
   const searchedSceneCount = sceneStatuses.filter((s) => s.status === "candidates_ready").length;

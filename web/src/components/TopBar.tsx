@@ -1,4 +1,4 @@
-import { CheckCircle, AlertCircle, Settings, Upload, FolderOpen } from "lucide-react";
+import { AlertCircle, Settings, Plus, FolderOpen } from "lucide-react";
 
 import type { ReviewProjectView } from "../types.js";
 
@@ -12,18 +12,6 @@ interface TopBarProps {
   onProjectList?: () => void;
 }
 
-/**
- * Detect whether the project was planned or searched using the fixture
- * test stub (fake scenes / gray thumbnails).
- */
-function isFixtureProject(project: ReviewProjectView | null): boolean {
-  if (!project) return false;
-  if (project.generation?.plannerProvider === "fixture") return true;
-  return project.scenes.some((s) =>
-    s.search.candidates.some((c) => c.kind === "asset" && c.provider.id === "fixture"),
-  );
-}
-
 export function TopBar({
   project,
   error,
@@ -34,7 +22,6 @@ export function TopBar({
   const title = project?.project.title ?? "Speech-to-Scene";
   const sceneCount = project?.sceneCount ?? 0;
   const searchedCount = project?.searchedSceneCount ?? 0;
-  const fixtureMode = isFixtureProject(project);
 
   return (
     <header className="topbar">
@@ -44,20 +31,15 @@ export function TopBar({
       </div>
       <div className="project-meta">
         {onProjectList && (
-          <button
-            className="btn"
-            type="button"
-            onClick={onProjectList}
-            title="查看所有项目"
-          >
+          <button className="btn" type="button" onClick={onProjectList} title="查看所有项目">
             <FolderOpen size={14} />
             项目列表
           </button>
         )}
-        <span>{title}</span>
+        <strong className="project-title">{title}</strong>
         {project && (
           <span className="status-pill ok">
-            {searchedCount} / {sceneCount} 场景已搜索
+            {searchedCount} / {sceneCount} 已有素材
           </span>
         )}
         {error && (
@@ -66,23 +48,12 @@ export function TopBar({
             连接异常
           </span>
         )}
-        {project && (
-          <span className="status-pill">
-            <CheckCircle size={14} />
-            已连接
-          </span>
-        )}
       </div>
       <div className="actions">
         {onReset && (
-          <button
-            className="btn"
-            type="button"
-            onClick={onReset}
-            title="重新上传文稿（会覆盖当前项目）"
-          >
-            <Upload size={14} />
-            重新上传
+          <button className="btn" type="button" onClick={onReset} title="创建新项目">
+            <Plus size={14} />
+            新建
           </button>
         )}
         {onSettings && (
@@ -92,11 +63,6 @@ export function TopBar({
           </button>
         )}
       </div>
-      {fixtureMode && (
-        <div className="fixture-banner">
-          当前使用 Fixture 测试模式（场景或素材为模拟数据）。请在「设置」中配置 StepFun / DeepSeek 和 Pexels API Key，然后点「重新上传」使用真实数据生成。
-        </div>
-      )}
     </header>
   );
 }

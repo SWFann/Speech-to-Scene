@@ -323,7 +323,13 @@ describe("getProjectStatusUseCase", () => {
             order: 1,
             search: {
               queries: [
-                { id: "query-001", language: "en", query: "test", purpose: "visual", enabled: true },
+                {
+                  id: "query-001",
+                  language: "en",
+                  query: "test",
+                  purpose: "visual",
+                  enabled: true,
+                },
               ],
               candidates: [candidate],
               lastSearchedAt: "2026-07-13T10:00:00.000Z",
@@ -357,7 +363,13 @@ describe("getProjectStatusUseCase", () => {
             order: 2,
             search: {
               queries: [
-                { id: "query-001", language: "en", query: "test", purpose: "visual", enabled: true },
+                {
+                  id: "query-001",
+                  language: "en",
+                  query: "test",
+                  purpose: "visual",
+                  enabled: true,
+                },
               ],
               candidates: [candidate],
               lastSearchedAt: "2026-07-13T10:00:00.000Z",
@@ -375,7 +387,13 @@ describe("getProjectStatusUseCase", () => {
             order: 4,
             search: {
               queries: [
-                { id: "query-002", language: "en", query: "test2", purpose: "visual", enabled: true },
+                {
+                  id: "query-002",
+                  language: "en",
+                  query: "test2",
+                  purpose: "visual",
+                  enabled: true,
+                },
               ],
               candidates: [
                 { ...candidate, id: "candidate-002", matchedQueryId: "query-002", rank: 2 },

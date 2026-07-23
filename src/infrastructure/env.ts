@@ -7,6 +7,11 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { InvalidArgumentError } from "../shared/errors.js";
+import {
+  normalizeOfficialProviderBaseUrl,
+  type OfficialProvider,
+} from "../shared/provider-base-url.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,6 +112,24 @@ function getEnv(name: string): string | undefined {
   return process.env[name] ?? undefined;
 }
 
+function readOfficialBaseUrl(
+  provider: OfficialProvider,
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = normalizeOfficialProviderBaseUrl(provider, value);
+  if (normalized === null) {
+    const label = provider === "stepfun" ? "StepFun" : "DeepSeek";
+    throw new InvalidArgumentError(
+      `Unsafe ${label} base URL in environment`,
+      `请将 ${label} Base URL 恢复为官方 HTTPS API 地址`,
+    );
+  }
+  return normalized;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -125,10 +148,10 @@ function getEnv(name: string): string | undefined {
  */
 export function readPlannerEnv(): PlannerEnvConfig {
   const apiKey = getEnv("DEEPSEEK_API_KEY");
-  const baseUrl = getEnv("DEEPSEEK_BASE_URL");
+  const baseUrl = readOfficialBaseUrl("deepseek", getEnv("DEEPSEEK_BASE_URL"));
   const model = getEnv("DEEPSEEK_MODEL");
   const stepApiKey = getEnv("STEP_API_KEY");
-  const stepBaseUrl = getEnv("STEP_BASE_URL");
+  const stepBaseUrl = readOfficialBaseUrl("stepfun", getEnv("STEP_BASE_URL"));
   const stepModel = getEnv("STEP_MODEL");
 
   const result: Record<string, unknown> = {

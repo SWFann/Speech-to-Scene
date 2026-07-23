@@ -13,15 +13,15 @@
 
 ### 1.1 用户确认的关键决策
 
-| 决策点 | 选择 | 理由 |
-|---|---|---|
-| 输入形式 | 文本（文件 .md/.txt 或粘贴） | 不涉及 ASR，复用现有 plan |
-| 素材源策略 | API 源搜索 + 无 API 源外链记录 | 国内平台无合法 API，走手动外链 |
-| 交付节奏 | 方案 A 增量三步 | 步骤 1 先解决傻瓜体验 |
-| 文稿上传路径 | A1 后端接受 bytes | 前端零文件系统 |
-| 项目绑定模型 | S1 单项目 | 改动最小，最快跑通 |
-| 一键流调用形式 | 前端串行 create→plan→search | 可分步看进度，更灵活 |
-| Key 持久化位置 | workspace 级 `.s2s/settings.json` | 不被 create 覆盖，不入 git |
+| 决策点         | 选择                              | 理由                           |
+| -------------- | --------------------------------- | ------------------------------ |
+| 输入形式       | 文本（文件 .md/.txt 或粘贴）      | 不涉及 ASR，复用现有 plan      |
+| 素材源策略     | API 源搜索 + 无 API 源外链记录    | 国内平台无合法 API，走手动外链 |
+| 交付节奏       | 方案 A 增量三步                   | 步骤 1 先解决傻瓜体验          |
+| 文稿上传路径   | A1 后端接受 bytes                 | 前端零文件系统                 |
+| 项目绑定模型   | S1 单项目                         | 改动最小，最快跑通             |
+| 一键流调用形式 | 前端串行 create→plan→search       | 可分步看进度，更灵活           |
+| Key 持久化位置 | workspace 级 `.s2s/settings.json` | 不被 create 覆盖，不入 git     |
 
 ### 1.2 不在步骤 1 范围内（后续步骤）
 
@@ -79,15 +79,15 @@ Review Server 启动时绑定一个固定的 `projectRoot`（默认 `./workspace
 
 ```jsonc
 {
-  "content": "文稿正文文本",        // 必填，非空
-  "fileName": "script.md",         // 可选，用于推断 .md/.txt
+  "content": "文稿正文文本", // 必填，非空
+  "fileName": "script.md", // 可选，用于推断 .md/.txt
   "title": "可选标题",
-  "language": "zh-CN",             // 默认 zh-CN
-  "aspectRatio": "9:16",           // 默认 9:16
-  "style": "knowledge",            // 默认 knowledge
+  "language": "zh-CN", // 默认 zh-CN
+  "aspectRatio": "9:16", // 默认 9:16
+  "style": "knowledge", // 默认 knowledge
   "intendedUse": "commercial_capable",
   "willModify": true,
-  "force": false
+  "force": false,
 }
 ```
 
@@ -103,9 +103,9 @@ Review Server 启动时绑定一个固定的 `projectRoot`（默认 `./workspace
 
 ```jsonc
 {
-  "provider": "fixture",     // fixture | deepseek | stepfun
-  "maxScenes": 12,           // 可选，默认 12
-  "force": false
+  "provider": "fixture", // fixture | deepseek | stepfun
+  "maxScenes": 12, // 可选，默认 12
+  "force": false,
 }
 ```
 
@@ -117,9 +117,9 @@ Review Server 启动时绑定一个固定的 `projectRoot`（默认 `./workspace
 
 ```jsonc
 {
-  "provider": "pexels",      // fixture | pexels
+  "provider": "pexels", // fixture | pexels
   "refresh": false,
-  "limit": 12
+  "limit": 12,
 }
 ```
 
@@ -163,7 +163,7 @@ plan + search 完成后，现有 `SceneList / SceneDetail / Inspector` 正常显
   "stepModel": "step-3.7-flash",
   "pexelsApiKey": "...",
   "pexelsBaseUrl": "",
-  "pexelsVideoBaseUrl": ""
+  "pexelsVideoBaseUrl": "",
 }
 ```
 
@@ -171,10 +171,10 @@ plan + search 完成后，现有 `SceneList / SceneDetail / Inspector` 正常显
 
 ### 6.2 端点
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/settings` | 返回**脱敏视图**：每个 key 只返回 boolean（已设/未设）+ provider 配置，不返回明文 |
-| PUT | `/api/settings` | 持久化到 `settings.json`（需 token + Origin） |
+| 方法 | 路径            | 说明                                                                              |
+| ---- | --------------- | --------------------------------------------------------------------------------- |
+| GET  | `/api/settings` | 返回**脱敏视图**：每个 key 只返回 boolean（已设/未设）+ provider 配置，不返回明文 |
+| PUT  | `/api/settings` | 持久化到 `settings.json`（需 token + Origin）                                     |
 
 GET 响应示例：
 
@@ -187,7 +187,7 @@ GET 响应示例：
   "deepseekBaseUrl": "https://api.deepseek.com",
   "deepseekModel": "",
   "stepBaseUrl": "https://api.stepfun.com/v1",
-  "stepModel": "step-3.7-flash"
+  "stepModel": "step-3.7-flash",
 }
 ```
 
@@ -223,15 +223,15 @@ pnpm build:all && node dist/cli/index.js review ./workspace/default --open
 
 沿用现有 `mapMutationError` + 前端 `ActionError` 组件。
 
-| 场景 | HTTP | 前端提示 |
-|---|---|---|
-| create 时已有项目且 force=false | 409 | 弹确认框 → 带 force=true 重试 |
-| plan 时项目未创建 | 409 | "请先上传文稿" |
-| planner provider key 缺失 | 400 + code | "API key 未配置，去设置页填写" |
-| pexels key 缺失 | 400 + code | 同上 |
-| pexels 限流 | 429 | "请求过频，稍后重试" |
-| settings 格式错误 | 400 | 字段级提示 |
-| settings 文件写入失败 | 500 | "保存失败，检查磁盘权限" |
+| 场景                            | HTTP       | 前端提示                       |
+| ------------------------------- | ---------- | ------------------------------ |
+| create 时已有项目且 force=false | 409        | 弹确认框 → 带 force=true 重试  |
+| plan 时项目未创建               | 409        | "请先上传文稿"                 |
+| planner provider key 缺失       | 400 + code | "API key 未配置，去设置页填写" |
+| pexels key 缺失                 | 400 + code | 同上                           |
+| pexels 限流                     | 429        | "请求过频，稍后重试"           |
+| settings 格式错误               | 400        | 字段级提示                     |
+| settings 文件写入失败           | 500        | "保存失败，检查磁盘权限"       |
 
 所有外部输入走 Zod 严格校验；key 缺失时返回带 code 的错误，前端识别 code 后引导去设置页。
 

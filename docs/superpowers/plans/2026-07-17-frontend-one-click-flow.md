@@ -15,32 +15,34 @@
 ## 文件结构
 
 ### 新建
-| 文件 | 职责 |
-|---|---|
-| `src/application/ports/settings-store.ts` | SettingsStore port + Settings/SettingsView 类型 |
-| `src/infrastructure/settings-store.ts` | FsSettingsStore：读写 `.s2s/settings.json` + 脱敏 |
-| `src/application/create-project-from-content.ts` | 从 bytes 创建项目的 use case |
-| `web/src/components/LandingView.tsx` | 上传文稿/粘贴 + 元数据 + 一键生成 |
-| `web/src/components/SettingsPanel.tsx` | API key 配置面板 |
-| `tests/unit/settings-store.test.ts` | settings 读写 + 脱敏测试 |
-| `tests/unit/create-project-from-content.test.ts` | use case 测试 |
-| `tests/unit/api-settings.test.ts` | /api/settings 路由测试 |
-| `tests/unit/api-project-lifecycle.test.ts` | create/plan/search 路由测试 |
+
+| 文件                                             | 职责                                              |
+| ------------------------------------------------ | ------------------------------------------------- |
+| `src/application/ports/settings-store.ts`        | SettingsStore port + Settings/SettingsView 类型   |
+| `src/infrastructure/settings-store.ts`           | FsSettingsStore：读写 `.s2s/settings.json` + 脱敏 |
+| `src/application/create-project-from-content.ts` | 从 bytes 创建项目的 use case                      |
+| `web/src/components/LandingView.tsx`             | 上传文稿/粘贴 + 元数据 + 一键生成                 |
+| `web/src/components/SettingsPanel.tsx`           | API key 配置面板                                  |
+| `tests/unit/settings-store.test.ts`              | settings 读写 + 脱敏测试                          |
+| `tests/unit/create-project-from-content.test.ts` | use case 测试                                     |
+| `tests/unit/api-settings.test.ts`                | /api/settings 路由测试                            |
+| `tests/unit/api-project-lifecycle.test.ts`       | create/plan/search 路由测试                       |
 
 ### 修改
-| 文件 | 改动 |
-|---|---|
-| `src/review/review-types.ts` | ReviewServerDependencies 加 5 个成员 |
-| `src/review/router.ts` | createRoutes 接收新 deps + 5 个路由 |
-| `src/cli/commands/review-command.ts` | 注入新 deps + workspace 自动创建 + --open |
-| `src/cli/command-context.ts` | 加 createProjectFromContent 等 |
-| `src/cli/provider-factory.ts` | env 来源改 settings 优先 |
-| `src/infrastructure/env.ts` | readAssetProviderEnv/readPlannerEnv 支持 settings fallback |
-| `package.json` | `start` 脚本 |
-| `web/src/api/review-api.ts` | 新增 5 个客户端方法 |
-| `web/src/App.tsx` | LandingView/SettingsPanel/视图切换 |
-| `web/src/components/TopBar.tsx` | 齿轮按钮 |
-| `README.md` | start 说明 + milestone |
+
+| 文件                                 | 改动                                                       |
+| ------------------------------------ | ---------------------------------------------------------- |
+| `src/review/review-types.ts`         | ReviewServerDependencies 加 5 个成员                       |
+| `src/review/router.ts`               | createRoutes 接收新 deps + 5 个路由                        |
+| `src/cli/commands/review-command.ts` | 注入新 deps + workspace 自动创建 + --open                  |
+| `src/cli/command-context.ts`         | 加 createProjectFromContent 等                             |
+| `src/cli/provider-factory.ts`        | env 来源改 settings 优先                                   |
+| `src/infrastructure/env.ts`          | readAssetProviderEnv/readPlannerEnv 支持 settings fallback |
+| `package.json`                       | `start` 脚本                                               |
+| `web/src/api/review-api.ts`          | 新增 5 个客户端方法                                        |
+| `web/src/App.tsx`                    | LandingView/SettingsPanel/视图切换                         |
+| `web/src/components/TopBar.tsx`      | 齿轮按钮                                                   |
+| `README.md`                          | start 说明 + milestone                                     |
 
 ---
 
@@ -49,6 +51,7 @@
 ### Task A1: SettingsStore port 与类型
 
 **Files:**
+
 - Create: `src/application/ports/settings-store.ts`
 
 - [ ] **Step 1: 写 port 与类型**
@@ -117,6 +120,7 @@ git commit -m "feat(application): add SettingsStore port and types"
 ### Task A2: FsSettingsStore 实现
 
 **Files:**
+
 - Create: `src/infrastructure/settings-store.ts`
 - Create: `tests/unit/settings-store.test.ts`
 
@@ -276,6 +280,7 @@ git commit -m "feat(infra): FsSettingsStore with desensitized view"
 ### Task B1: ReviewServerDependencies 扩展 + settings 路由
 
 **Files:**
+
 - Modify: `src/review/review-types.ts`
 - Modify: `src/review/router.ts`
 - Create: `tests/unit/api-settings.test.ts`
@@ -320,15 +325,70 @@ function fakeDeps(overrides: Partial<ReviewServerDependencies> = {}): ReviewServ
     getReviewProject: async () => ({ project: { id: "p", scenes: [] } }),
     updateScene: async () => ({}),
     updateSceneQueries: async () => ({}),
-    searchSceneAssets: async () => ({ projectId: "p", status: "searched", sceneCount: 0, totalCandidates: 0, cacheHits: 0, cacheMisses: 0, warnings: [] }),
+    searchSceneAssets: async () => ({
+      projectId: "p",
+      status: "searched",
+      sceneCount: 0,
+      totalCandidates: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      warnings: [],
+    }),
     selectCandidate: async () => ({}),
     skipScene: async () => ({}),
     attachLocalAsset: async () => ({}),
-    getSettings: async () => ({ plannerProvider: "fixture", hasDeepseekKey: false, hasStepKey: false, hasPexelsKey: true, deepseekBaseUrl: "", deepseekModel: "", stepBaseUrl: "", stepModel: "", pexelsBaseUrl: "", pexelsVideoBaseUrl: "" } satisfies SettingsView),
-    saveSettings: async () => ({ plannerProvider: "fixture", hasDeepseekKey: false, hasStepKey: false, hasPexelsKey: true, deepseekBaseUrl: "", deepseekModel: "", stepBaseUrl: "", stepModel: "", pexelsBaseUrl: "", pexelsVideoBaseUrl: "" } satisfies SettingsView),
-    createProjectFromContent: async () => ({ projectId: "p", title: "t", status: "created", projectRoot: "/", scriptPath: "/s", createdAt: "" }),
-    planProject: async () => ({ projectId: "p", title: "t", status: "planned", sceneCount: 0, provider: "fixture", promptVersion: "v", projectRoot: "/" }),
-    searchProjectAssets: async () => ({ projectId: "p", status: "searched", sceneCount: 0, totalCandidates: 0, cacheHits: 0, cacheMisses: 0, warnings: [] }),
+    getSettings: async () =>
+      ({
+        plannerProvider: "fixture",
+        hasDeepseekKey: false,
+        hasStepKey: false,
+        hasPexelsKey: true,
+        deepseekBaseUrl: "",
+        deepseekModel: "",
+        stepBaseUrl: "",
+        stepModel: "",
+        pexelsBaseUrl: "",
+        pexelsVideoBaseUrl: "",
+      }) satisfies SettingsView,
+    saveSettings: async () =>
+      ({
+        plannerProvider: "fixture",
+        hasDeepseekKey: false,
+        hasStepKey: false,
+        hasPexelsKey: true,
+        deepseekBaseUrl: "",
+        deepseekModel: "",
+        stepBaseUrl: "",
+        stepModel: "",
+        pexelsBaseUrl: "",
+        pexelsVideoBaseUrl: "",
+      }) satisfies SettingsView,
+    createProjectFromContent: async () => ({
+      projectId: "p",
+      title: "t",
+      status: "created",
+      projectRoot: "/",
+      scriptPath: "/s",
+      createdAt: "",
+    }),
+    planProject: async () => ({
+      projectId: "p",
+      title: "t",
+      status: "planned",
+      sceneCount: 0,
+      provider: "fixture",
+      promptVersion: "v",
+      projectRoot: "/",
+    }),
+    searchProjectAssets: async () => ({
+      projectId: "p",
+      status: "searched",
+      sceneCount: 0,
+      totalCandidates: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      warnings: [],
+    }),
   } as unknown as ReviewServerDependencies;
   return { ...base, ...overrides } as ReviewServerDependencies;
 }
@@ -378,6 +438,7 @@ const SaveSettingsBodySchema = z.strictObject({
 ```
 
 GET handler：
+
 ```ts
 routes.push({
   path: "/api/settings",
@@ -394,6 +455,7 @@ routes.push({
 ```
 
 PUT handler：
+
 ```ts
 routes.push({
   path: "/api/settings",
@@ -401,7 +463,13 @@ routes.push({
   handler: async (req, res) => {
     const bodyResult = await parseJsonBody(req, res);
     if (!bodyResult.success) {
-      sendError(res, bodyResult.statusCode, bodyResult.code, bodyResult.message, bodyResult.hint ?? undefined);
+      sendError(
+        res,
+        bodyResult.statusCode,
+        bodyResult.code,
+        bodyResult.message,
+        bodyResult.hint ?? undefined,
+      );
       return;
     }
     const parsed = SaveSettingsBodySchema.safeParse(bodyResult.data);
@@ -440,6 +508,7 @@ git commit -m "feat(review): add GET/PUT /api/settings routes"
 ### Task C1: 从 bytes 创建项目的 use case
 
 **Files:**
+
 - Create: `src/application/create-project-from-content.ts`
 - Create: `tests/unit/create-project-from-content.test.ts`
 
@@ -588,7 +657,9 @@ export async function createProjectFromContent(
   const now = clock.now();
   const createdAt = now.toISOString();
   const projectId = idGenerator.projectId();
-  const title = input.title?.trim() || path.basename(input.originalFileName, path.extname(input.originalFileName));
+  const title =
+    input.title?.trim() ||
+    path.basename(input.originalFileName, path.extname(input.originalFileName));
   const sentinelToken = idGenerator.temporaryId();
 
   if (await repository.exists(resolvedProjectRoot)) {
@@ -640,7 +711,9 @@ export async function createProjectFromContent(
     const owns = await scaffolder.checkSentinel(resolvedProjectRoot, sentinelToken);
     if (owns) {
       try {
-        await import("node:fs/promises").then((fs) => fs.rm(resolvedProjectRoot, { recursive: true, force: true }));
+        await import("node:fs/promises").then((fs) =>
+          fs.rm(resolvedProjectRoot, { recursive: true, force: true }),
+        );
       } catch {
         /* best-effort */
       }
@@ -675,6 +748,7 @@ git commit -m "feat(application): createProjectFromContent use case"
 ### Task D1: /api/project/create + /plan + /search 路由
 
 **Files:**
+
 - Modify: `src/review/router.ts`
 - Create: `tests/unit/api-project-lifecycle.test.ts`
 
@@ -693,15 +767,68 @@ function fakeDeps(): ReviewServerDependencies {
     getReviewProject: async () => ({ project: { id: "p", scenes: [] } }),
     updateScene: async () => ({}),
     updateSceneQueries: async () => ({}),
-    searchSceneAssets: async () => ({ projectId: "p", status: "searched", sceneCount: 0, totalCandidates: 0, cacheHits: 0, cacheMisses: 0, warnings: [] }),
+    searchSceneAssets: async () => ({
+      projectId: "p",
+      status: "searched",
+      sceneCount: 0,
+      totalCandidates: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      warnings: [],
+    }),
     selectCandidate: async () => ({}),
     skipScene: async () => ({}),
     attachLocalAsset: async () => ({}),
-    getSettings: async () => ({ plannerProvider: "fixture", hasDeepseekKey: false, hasStepKey: false, hasPexelsKey: false, deepseekBaseUrl: "", deepseekModel: "", stepBaseUrl: "", stepModel: "", pexelsBaseUrl: "", pexelsVideoBaseUrl: "" }),
-    saveSettings: async () => ({ plannerProvider: "fixture", hasDeepseekKey: false, hasStepKey: false, hasPexelsKey: false, deepseekBaseUrl: "", deepseekModel: "", stepBaseUrl: "", stepModel: "", pexelsBaseUrl: "", pexelsVideoBaseUrl: "" }),
-    createProjectFromContent: async () => ({ projectId: "p", title: "t", status: "created", projectRoot: "/", scriptPath: "/s", createdAt: "" }),
-    planProject: async () => ({ projectId: "p", title: "t", status: "planned", sceneCount: 0, provider: "fixture", promptVersion: "v", projectRoot: "/" }),
-    searchProjectAssets: async () => ({ projectId: "p", status: "searched", sceneCount: 0, totalCandidates: 0, cacheHits: 0, cacheMisses: 0, warnings: [] }),
+    getSettings: async () => ({
+      plannerProvider: "fixture",
+      hasDeepseekKey: false,
+      hasStepKey: false,
+      hasPexelsKey: false,
+      deepseekBaseUrl: "",
+      deepseekModel: "",
+      stepBaseUrl: "",
+      stepModel: "",
+      pexelsBaseUrl: "",
+      pexelsVideoBaseUrl: "",
+    }),
+    saveSettings: async () => ({
+      plannerProvider: "fixture",
+      hasDeepseekKey: false,
+      hasStepKey: false,
+      hasPexelsKey: false,
+      deepseekBaseUrl: "",
+      deepseekModel: "",
+      stepBaseUrl: "",
+      stepModel: "",
+      pexelsBaseUrl: "",
+      pexelsVideoBaseUrl: "",
+    }),
+    createProjectFromContent: async () => ({
+      projectId: "p",
+      title: "t",
+      status: "created",
+      projectRoot: "/",
+      scriptPath: "/s",
+      createdAt: "",
+    }),
+    planProject: async () => ({
+      projectId: "p",
+      title: "t",
+      status: "planned",
+      sceneCount: 0,
+      provider: "fixture",
+      promptVersion: "v",
+      projectRoot: "/",
+    }),
+    searchProjectAssets: async () => ({
+      projectId: "p",
+      status: "searched",
+      sceneCount: 0,
+      totalCandidates: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      warnings: [],
+    }),
   } as unknown as ReviewServerDependencies;
 }
 
@@ -769,7 +896,13 @@ routes.push({
   handler: async (req, res) => {
     const bodyResult = await parseJsonBody(req, res);
     if (!bodyResult.success) {
-      sendError(res, bodyResult.statusCode, bodyResult.code, bodyResult.message, bodyResult.hint ?? undefined);
+      sendError(
+        res,
+        bodyResult.statusCode,
+        bodyResult.code,
+        bodyResult.message,
+        bodyResult.hint ?? undefined,
+      );
       return;
     }
     const parsed = CreateProjectBodySchema.safeParse(bodyResult.data);
@@ -809,7 +942,13 @@ routes.push({
   handler: async (req, res) => {
     const bodyResult = await parseJsonBody(req, res);
     if (!bodyResult.success) {
-      sendError(res, bodyResult.statusCode, bodyResult.code, bodyResult.message, bodyResult.hint ?? undefined);
+      sendError(
+        res,
+        bodyResult.statusCode,
+        bodyResult.code,
+        bodyResult.message,
+        bodyResult.hint ?? undefined,
+      );
       return;
     }
     const parsed = PlanProjectBodySchema.safeParse(bodyResult.data);
@@ -843,7 +982,13 @@ routes.push({
   handler: async (req, res) => {
     const bodyResult = await parseJsonBody(req, res);
     if (!bodyResult.success) {
-      sendError(res, bodyResult.statusCode, bodyResult.code, bodyResult.message, bodyResult.hint ?? undefined);
+      sendError(
+        res,
+        bodyResult.statusCode,
+        bodyResult.code,
+        bodyResult.message,
+        bodyResult.hint ?? undefined,
+      );
       return;
     }
     const parsed = SearchProjectBodySchema.safeParse(bodyResult.data);
@@ -888,12 +1033,14 @@ git commit -m "feat(review): add project create/plan/search routes"
 ### Task E1: review-command 注入新 deps + workspace 自动创建 + --open
 
 **Files:**
+
 - Modify: `src/cli/commands/review-command.ts`
 - Modify: `src/cli/command-context.ts`
 
 - [ ] **Step 1: 注入新 use case 与 settings store**
 
 在 `review-command.ts` 的 action 里：
+
 - 创建 `FsSettingsStore({ settingsPath: path.join(workspaceRoot, ".s2s", "settings.json") })`，其中 `workspaceRoot = path.dirname(path.resolve(resolvedProjectRoot))`（projectRoot 是 `./workspace/default`，workspace 根是其父目录 `./workspace`）。
 - 构造 `getSettings` / `saveSettings` 闭包：`getSettings = async () => store.toView(await store.load())`；`saveSettings = async (input) => { const current = await store.load(); const merged = { ...current, ...cleanUndefined(input) }; await store.save(merged); return store.toView(merged); }`。
 - 构造 `createProjectFromContent` 闭包：绑定 `ctx.clock / ctx.idGenerator / ctx.repository / ctx.scaffolder`。
@@ -906,6 +1053,7 @@ git commit -m "feat(review): add project create/plan/search routes"
 - [ ] **Step 2: workspace/default 自动创建 + --open**
 
 在 action 开头（validate project 前）：
+
 ```ts
 // 自动确保 workspace/default 存在（首次启动）
 const fs = await import("node:fs/promises");
@@ -913,9 +1061,11 @@ await fs.mkdir(resolvedProjectRoot, { recursive: true });
 ```
 
 `--open`：将 `--no-open` 选项改为默认 open=true。修改 option 定义：
+
 ```ts
 .option("--no-open", "Do not open a browser (default: open browser)")
 ```
+
 并在启动成功后，若 `options.open` 为 true，用 `import("node:child_process")` 打开 `http://${host}:${handle.port}/?token=${handle.token}`。
 
 - [ ] **Step 3: typecheck**
@@ -933,6 +1083,7 @@ git commit -m "feat(cli): inject lifecycle deps + workspace auto-create + --open
 ### Task E2: env 读取顺序 settings 优先
 
 **Files:**
+
 - Modify: `src/infrastructure/env.ts`
 - Modify: `src/cli/provider-factory.ts`
 
@@ -955,12 +1106,14 @@ git commit -m "feat(cli): settings.json takes priority over .env for provider ke
 ### Task E3: pnpm start 脚本 + README
 
 **Files:**
+
 - Modify: `package.json`
 - Modify: `README.md`
 
 - [ ] **Step 1: 加 start 脚本**
 
 `package.json` scripts 加：
+
 ```json
 "start": "pnpm build:all && node dist/cli/index.js review ./workspace/default"
 ```
@@ -983,6 +1136,7 @@ git commit -m "chore: add pnpm start one-click launch script"
 ### Task F1: review-api 客户端新增方法
 
 **Files:**
+
 - Modify: `web/src/api/review-api.ts`
 
 - [ ] **Step 1: 加 5 个方法**
@@ -1048,6 +1202,7 @@ git commit -m "feat(web): add project lifecycle + settings API client methods"
 ### Task F2: LandingView 组件
 
 **Files:**
+
 - Create: `web/src/components/LandingView.tsx`
 
 - [ ] **Step 1: 写组件**
@@ -1058,11 +1213,7 @@ import { useState } from "react";
 import { FileText, Sparkles } from "lucide-react";
 
 interface LandingViewProps {
-  onCreate: (input: {
-    content: string;
-    fileName?: string;
-    title?: string;
-  }) => Promise<void>;
+  onCreate: (input: { content: string; fileName?: string; title?: string }) => Promise<void>;
   busy: boolean;
   error: { message: string; hint?: string } | null;
 }
@@ -1097,7 +1248,12 @@ export function LandingView({ onCreate, busy, error }: LandingViewProps): React.
       <div className="landing-body">
         <label className="file-upload">
           <FileText size={16} />
-          <input type="file" accept=".md,.txt,text/markdown,text/plain" onChange={handleFile} disabled={busy} />
+          <input
+            type="file"
+            accept=".md,.txt,text/markdown,text/plain"
+            onChange={handleFile}
+            disabled={busy}
+          />
           <span>{fileName || "选择 .md/.txt 文件"}</span>
         </label>
         <textarea
@@ -1116,7 +1272,11 @@ export function LandingView({ onCreate, busy, error }: LandingViewProps): React.
           onChange={(e) => setTitle(e.target.value)}
           disabled={busy}
         />
-        <button className="btn primary" disabled={!canSubmit} onClick={() => onCreate({ content, fileName, title })}>
+        <button
+          className="btn primary"
+          disabled={!canSubmit}
+          onClick={() => onCreate({ content, fileName, title })}
+        >
           {busy ? "生成中…" : "一键生成"}
         </button>
       </div>
@@ -1128,14 +1288,52 @@ export function LandingView({ onCreate, busy, error }: LandingViewProps): React.
 - [ ] **Step 2: 加样式（styles.css 的 .landing 区）**
 
 ```css
-.landing { max-width: 720px; margin: 40px auto; padding: 0 16px; }
-.landing-header { text-align: center; margin-bottom: 24px; }
-.landing-header h1 { margin: 8px 0 4px; }
-.landing-header p { color: var(--muted); font-size: 13px; }
-.landing-body { display: flex; flex-direction: column; gap: 12px; }
-.file-upload { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius); cursor: pointer; }
-.script-input { width: 100%; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 12px; font-size: 14px; font-family: inherit; resize: vertical; }
-.title-input { height: 36px; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0 12px; font-size: 14px; }
+.landing {
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 0 16px;
+}
+.landing-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.landing-header h1 {
+  margin: 8px 0 4px;
+}
+.landing-header p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.landing-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.file-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.script-input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+.title-input {
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  font-size: 14px;
+}
 ```
 
 - [ ] **Step 3: Commit**
@@ -1148,6 +1346,7 @@ git commit -m "feat(web): add LandingView upload/paste component"
 ### Task F3: SettingsPanel 组件
 
 **Files:**
+
 - Create: `web/src/components/SettingsPanel.tsx`
 
 - [ ] **Step 1: 写组件**
@@ -1173,10 +1372,13 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    client.getSettings().then((v) => {
-      setView(v);
-      setPlanner(v.plannerProvider);
-    }).catch(() => {});
+    client
+      .getSettings()
+      .then((v) => {
+        setView(v);
+        setPlanner(v.plannerProvider);
+      })
+      .catch(() => {});
   }, [client]);
 
   const handleSave = async () => {
@@ -1202,7 +1404,9 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <h2>API Key 配置</h2>
-          <button className="icon-btn" onClick={onClose}><X size={18} /></button>
+          <button className="icon-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
         </div>
         {view && (
           <div className="settings-body">
@@ -1215,13 +1419,33 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
             {planner !== "fixture" && (
               <>
                 <label>{planner === "deepseek" ? "DeepSeek" : "StepFun"} API Key</label>
-                <input type="password" placeholder={view && ((planner === "deepseek" && view.hasDeepseekKey) || (planner === "stepfun" && view.hasStepKey)) ? "已配置，留空不修改" : "粘贴 API Key"} value={plannerKey} onChange={(e) => setPlannerKey(e.target.value)} disabled={saving} />
+                <input
+                  type="password"
+                  placeholder={
+                    view &&
+                    ((planner === "deepseek" && view.hasDeepseekKey) ||
+                      (planner === "stepfun" && view.hasStepKey))
+                      ? "已配置，留空不修改"
+                      : "粘贴 API Key"
+                  }
+                  value={plannerKey}
+                  onChange={(e) => setPlannerKey(e.target.value)}
+                  disabled={saving}
+                />
               </>
             )}
             <label>Pexels API Key</label>
-            <input type="password" placeholder={view?.hasPexelsKey ? "已配置，留空不修改" : "粘贴 Pexels API Key"} value={pexelsKey} onChange={(e) => setPexelsKey(e.target.value)} disabled={saving} />
+            <input
+              type="password"
+              placeholder={view?.hasPexelsKey ? "已配置，留空不修改" : "粘贴 Pexels API Key"}
+              value={pexelsKey}
+              onChange={(e) => setPexelsKey(e.target.value)}
+              disabled={saving}
+            />
             {saved && <span className="settings-saved">已保存</span>}
-            <button className="btn primary" onClick={() => void handleSave()} disabled={saving}>{saving ? "保存中…" : "保存"}</button>
+            <button className="btn primary" onClick={() => void handleSave()} disabled={saving}>
+              {saving ? "保存中…" : "保存"}
+            </button>
             <p className="settings-hint">Key 保存在本地 .s2s/settings.json，不入 Git。</p>
           </div>
         )}
@@ -1234,14 +1458,54 @@ export function SettingsPanel({ client, onClose }: SettingsPanelProps): React.Re
 - [ ] **Step 2: 加样式（.settings-overlay/.settings-modal）**
 
 ```css
-.settings-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: grid; place-items: center; z-index: 50; }
-.settings-modal { background: var(--panel); border-radius: 12px; width: min(480px, 90vw); max-height: 80vh; overflow: auto; padding: 20px; }
-.settings-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.settings-body { display: flex; flex-direction: column; gap: 8px; }
-.settings-body label { font-size: 12px; color: var(--muted); margin-top: 8px; }
-.settings-body input, .settings-body select { height: 36px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 0 10px; }
-.settings-saved { color: green; font-size: 12px; }
-.settings-hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+.settings-modal {
+  background: var(--panel);
+  border-radius: 12px;
+  width: min(480px, 90vw);
+  max-height: 80vh;
+  overflow: auto;
+  padding: 20px;
+}
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-body label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.settings-body input,
+.settings-body select {
+  height: 36px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 0 10px;
+}
+.settings-saved {
+  color: green;
+  font-size: 12px;
+}
+.settings-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 8px;
+}
 ```
 
 - [ ] **Step 3: Commit**
@@ -1254,33 +1518,44 @@ git commit -m "feat(web): add SettingsPanel for API key configuration"
 ### Task F4: App.tsx 视图切换 + TopBar 齿轮 + 一键流串联
 
 **Files:**
+
 - Modify: `web/src/App.tsx`
 - Modify: `web/src/components/TopBar.tsx`
 
 - [ ] **Step 1: 加视图状态与一键流串联**
 
 在 App.tsx 加：
+
 - `const [showSettings, setShowSettings] = useState(false);`
 - `const [landing, setLanding] = useState(true);`（无项目时显示 LandingView）
 
 一键流 handler：
+
 ```ts
-const handleCreate = useCallback(async (input: { content: string; fileName?: string; title?: string }) => {
-  if (!client) return;
-  setActionError(null);
-  setBusyAction("search");
-  try {
-    let project = await client.createProject({ content: input.content, fileName: input.fileName, title: input.title, force: true });
-    project = await client.planProject({ provider: "fixture", maxScenes: 12, force: true });
-    project = await client.searchProject({ provider: "pexels", limit: 12 });
-    syncFromProject(project);
-    setLanding(false);
-  } catch (err) {
-    setActionError(toActionError(err));
-  } finally {
-    setBusyAction(null);
-  }
-}, [client, syncFromProject]);
+const handleCreate = useCallback(
+  async (input: { content: string; fileName?: string; title?: string }) => {
+    if (!client) return;
+    setActionError(null);
+    setBusyAction("search");
+    try {
+      let project = await client.createProject({
+        content: input.content,
+        fileName: input.fileName,
+        title: input.title,
+        force: true,
+      });
+      project = await client.planProject({ provider: "fixture", maxScenes: 12, force: true });
+      project = await client.searchProject({ provider: "pexels", limit: 12 });
+      syncFromProject(project);
+      setLanding(false);
+    } catch (err) {
+      setActionError(toActionError(err));
+    } finally {
+      setBusyAction(null);
+    }
+  },
+  [client, syncFromProject],
+);
 ```
 
 渲染逻辑：`landing` 为 true 时渲染 `<LandingView onCreate={handleCreate} busy={busyAction !== null} error={actionError} />`，否则渲染现有 Review Board。`showSettings` 为 true 时渲染 `<SettingsPanel client={client} onClose={() => setShowSettings(false)} />`。
@@ -1330,4 +1605,7 @@ git commit -m "chore: step 1 complete — one-click flow + api key frontend"
 - **Spec 覆盖**：create/plan/search/settings 四组端点（§4）✓；createProjectFromContent（§4.1）✓；settings 持久化 workspace 级（§6.1）✓；env 优先级（§6.4）✓；LandingView/SettingsPanel（§5）✓；pnpm start + --open（§7）✓；错误映射（§8）在 Task D1 Step3 已标注核对 mapMutationError。
 - **类型一致**：`Settings`/`SettingsView` 跨 Phase A-E-F 一致；`createProjectFromContent` 返回 `CreateProjectFromContentResult` 与路由使用一致；`ReviewServerDependencies` 5 个新成员命名贯穿 B1/E1。
 - **注意点**：Task D1/E1 中 `routeDeps` / `config.deps.repository` 的确切取法，需对齐现有 `createRoutes` 如何从 config 拆出 deps（读 router.ts 现有 search 路由的闭包写法）。`mapMutationError` 对 `ProjectWriteError`/`ProjectAlreadyPlannedError` 的映射需核对，缺失则补。
+
+```
+
 ```

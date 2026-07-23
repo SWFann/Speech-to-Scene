@@ -147,7 +147,9 @@ describe("DefaultLinkSuggestionGenerator", (): void => {
     const linkByPlatform = new Map(links.map((l) => [l.platform, l]));
 
     it("builds xiaohongshu search URL", (): void => {
-      expect(linkByPlatform.get("xiaohongshu")!.searchUrl).toContain("xiaohongshu.com/search_result");
+      expect(linkByPlatform.get("xiaohongshu")!.searchUrl).toContain(
+        "xiaohongshu.com/search_result",
+      );
     });
 
     it("builds douyin search URL", (): void => {

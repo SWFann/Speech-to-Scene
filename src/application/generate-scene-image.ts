@@ -45,7 +45,7 @@ import {
 const GenerateSceneImageInputSchema = z.strictObject({
   projectRoot: z.string().min(1, "projectRoot 不能为空"),
   sceneId: IdSchema,
-  prompt: NonEmptyTrimmedStringSchema,
+  prompt: NonEmptyTrimmedStringSchema.max(512, "prompt 不能超过 512 个字符"),
   aspectRatio: z.enum(["9:16", "16:9", "1:1"]),
 });
 
@@ -76,19 +76,26 @@ export interface GenerateSceneImageDeps {
 // ---------------------------------------------------------------------------
 
 /**
- * Builds a generation prompt from a scene's summary and visual keywords.
- *
- * Combines the scene summary with the first 3 visual keywords, joined by
- * Chinese comma (，). This is a pure function with no side effects.
+ * Builds a concise production prompt with subject, composition, visual
+ * treatment, and negative constraints. StepFun accepts at most 512 chars.
  *
  * @param scene - The scene to build a prompt for.
  * @returns A prompt string suitable for text-to-image generation.
  */
 export function buildGenerationPrompt(scene: Scene): string {
-  const parts: string[] = [scene.summary];
-  const keywords = scene.visualPlan.visualKeywords.slice(0, 3);
-  parts.push(...keywords);
-  return parts.join("，");
+  const keywords = scene.visualPlan.visualKeywords
+    .slice(0, 5)
+    .map((keyword) => keyword.trim())
+    .filter(Boolean)
+    .join(", ");
+  const keywordClause = keywords ? `Key subjects: ${keywords}. ` : "";
+  const prompt =
+    `Create a polished 9:16 vertical editorial image for a short-form knowledge video. ` +
+    `Scene: ${scene.summary.trim()}. ${keywordClause}` +
+    `Clear single focal subject, natural action, realistic environment, strong foreground-background separation, ` +
+    `cinematic natural light, credible details, mobile-safe composition. ` +
+    `No text, subtitles, logos, watermarks, UI, collage, distorted hands, or duplicated objects.`;
+  return prompt.slice(0, 512);
 }
 
 // ---------------------------------------------------------------------------
@@ -142,21 +149,14 @@ export async function generateSceneImage(
   // 5. Generate image
   const result = await deps.imageGenerator.generate({ prompt, aspectRatio });
 
-  // 5b. Download the image locally so it persists beyond the remote URL's expiry
-  let imageUrl = result.imageUrl;
-  let thumbnailUrl = result.thumbnailUrl;
-  try {
-    const localUrl = await deps.imageDownloader.download(
-      projectRoot,
-      result.imageUrl,
-      deps.generateId(),
-      deps.serverPort,
-    );
-    imageUrl = localUrl;
-    thumbnailUrl = localUrl;
-  } catch {
-    // Fall back to the remote URL if download fails (still valid for ~24h)
-  }
+  // 5b. Persist the image before recording it; provider URLs may expire.
+  const candidateId = deps.generateId();
+  const localUrl = await deps.imageDownloader.download(
+    projectRoot,
+    result.imageUrl,
+    candidateId,
+    deps.serverPort,
+  );
 
   // 6. Deep-clone the project for mutation
   const updated = JSON.parse(JSON.stringify(project)) as SpeechToSceneProject;
@@ -173,11 +173,11 @@ export async function generateSceneImage(
   // 7. Construct the generated candidate
   const generatedCandidate = {
     kind: "generated" as const,
-    id: deps.generateId(),
+    id: candidateId,
     provider: result.providerSnapshot,
     prompt,
-    imageUrl,
-    thumbnailUrl,
+    imageUrl: localUrl,
+    thumbnailUrl: localUrl,
     width: result.width,
     height: result.height,
     orientation:
@@ -208,9 +208,7 @@ export async function generateSceneImage(
   } catch (error) {
     if (z.ZodError[Symbol.hasInstance](error)) {
       const zodError = error as z.ZodError;
-      const messages = zodError.issues
-        .map((e) => `${e.path.join(".")}: ${e.message}`)
-        .join("; ");
+      const messages = zodError.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ");
       throw new ProjectValidationError(
         `Image generation produced invalid project: ${messages}`,
         "图片生成导致项目数据无效",

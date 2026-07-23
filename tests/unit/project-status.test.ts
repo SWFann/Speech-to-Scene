@@ -206,7 +206,13 @@ describe("getProjectStatus", () => {
           },
           search: {
             queries: [
-              { id: "query-001", language: "en", query: "greeting", purpose: "visual", enabled: true },
+              {
+                id: "query-001",
+                language: "en",
+                query: "greeting",
+                purpose: "visual",
+                enabled: true,
+              },
             ],
             candidates: [candidate],
             lastSearchedAt: "2026-07-13T12:00:00Z",
@@ -272,7 +278,13 @@ describe("getProjectStatus", () => {
           },
           search: {
             queries: [
-              { id: "query-001", language: "en", query: "farewell", purpose: "visual", enabled: true },
+              {
+                id: "query-001",
+                language: "en",
+                query: "farewell",
+                purpose: "visual",
+                enabled: true,
+              },
             ],
             candidates: [candidate],
             lastSearchedAt: "2026-07-13T12:00:00Z",
