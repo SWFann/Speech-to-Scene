@@ -15,19 +15,21 @@ Since M5-03, the review server also serves the built React Review Board UI direc
 - `assets/<scene-id>/` — uploaded local assets (images, videos)
 - `cache/search/` — search cache files
 - `web/dist/` — built React Review Board UI (static files served by the review server)
-- Session token — generated at server startup, printed to terminal, never sent over the network to third parties
+- `.s2s/settings.json` — local provider settings; secret fields are never returned by the API
 
 ### What may be sent to third parties
 
-- When using `s2s plan` with DeepSeek (or `POST /api/scenes/:sceneId/search` with `provider: "pexels"`), the LLM or asset-search provider receives the minimum required query data under its own privacy policy and terms.
+- When using StepFun or DeepSeek planning, the selected LLM receives the source script and planning preferences under its own privacy policy and terms.
+- Asset providers receive only generated search queries and search parameters.
+- StepFun image generation receives the user-reviewed image prompt and aspect ratio.
 - API keys, complete environment dumps, full scripts, absolute local paths, uploaded file contents, and hidden model reasoning must not appear in normal logs.
-- The React Review Board loads Pexels candidate thumbnails directly from `https://images.pexels.com` over HTTPS. Only the thumbnail URL (provided by the search provider) is requested — no project data, tokens, or user information is sent to Pexels when loading thumbnails.
-- The `Referrer-Policy: no-referrer` header on static responses ensures the session token in the URL (`?token=`) is never leaked to Pexels or any other third-party thumbnail host.
+- The React Review Board loads provider candidate thumbnails over HTTPS. The `Referrer-Policy: no-referrer` header prevents the local page URL from being sent to those hosts.
+- Generated images are validated and copied into the current project so temporary provider URLs are not required after generation.
 
 ### Error responses
 
-- Error responses and logs do not include: API keys, session tokens, absolute filesystem paths, stack traces, or raw provider API responses.
-- The `GET /api/health` endpoint returns the project root path (for local CLI use), but does not include the session token.
+- Error responses and logs do not include: API keys, absolute filesystem paths, stack traces, or raw provider API responses.
+- The `GET /api/health` endpoint returns only local diagnostics needed by the UI.
 
 ### Local asset uploads
 
@@ -37,7 +39,6 @@ Since M5-03, the review server also serves the built React Review Board UI direc
 
 ### What should not be committed to Git
 
-- Session tokens
 - `.env` files (only `.env.example` is tracked)
 - `project.s2s.json` (user project data)
 - `assets/` contents (uploaded media)

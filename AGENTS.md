@@ -1,57 +1,61 @@
 # Speech-to-Scene Repository Instructions
 
-## Scope
+## Product scope
 
-Only implement Phase 1:
+Speech-to-Scene is a local-first tool that turns a spoken-video script into
+semantic scenes, useful material candidates, and optional AI-generated images:
 
 ```text
-script -> semantic scenes -> asset candidates -> local review board
-       -> manual download and local asset attachment
+script -> semantic scenes -> ranked real assets / platform search links
+       -> local Review Board -> local generated or user-provided media
 ```
 
-Do not implement rendering, ASR, timeline alignment, live recording, AI media generation, cloud accounts, databases, or mobile apps.
+Rendering, ASR, timeline alignment, cloud accounts, databases, and mobile apps
+remain out of scope. AI image generation and the React Review Board are current
+product capabilities, not future placeholders.
 
 ## Sources of truth
 
 Read before architectural changes:
 
-1. `docs/planning/Speech-to-Scene_Phase1_Demo_Execution_Plan.md`
-2. `docs/planning/PROJECT_ANALYSIS_AND_RECOMMENDATIONS.md`
-3. `docs/PROJECT_SCHEMA.md`
-4. `docs/VISUAL_GRAMMAR.md`
-5. `docs/ASSET_LICENSING.md`
+1. `docs/development/AI_TASK_AND_AUDIT_PLAYBOOK.md`
+2. `docs/PROJECT_SCHEMA.md`
+3. `docs/VISUAL_GRAMMAR.md`
+4. `docs/ASSET_LICENSING.md`
+5. `docs/governance/SECURITY.md`
 
-The Zod project schema will be the single source of truth for persisted project data.
+The Zod project schema is the source of truth for persisted project data.
 
 ## Architecture boundaries
 
-- Domain must not import filesystem, HTTP, React, model SDKs, or asset-provider code.
-- Application services depend on interfaces, not concrete providers.
-- DeepSeek, Anthropic, Pexels, and future sources are infrastructure providers.
-- Every external input is `unknown` until validated.
-- CLI commands delegate to application services.
+- Domain must not import filesystem, HTTP, React, model SDKs, or provider code.
+- Application services depend on ports; composition roots bind providers.
+- Every external input remains `unknown` until schema validation.
 - React calls local APIs and never accesses the filesystem directly.
-- Every project write goes through the repository and atomic-write implementation.
+- Project writes use the repository and atomic-write implementation.
 - Unit tests never call real external services.
+- Search links are suggestions, not usable material candidates.
+- Fixture providers are explicit test/demo tools and must not be production defaults.
+
+## Security and licensing
+
+- Never commit or print API keys, `.env`, local settings, user projects, media, caches, or logs.
+- Provider base URLs carrying credentials must remain restricted to official HTTPS endpoints.
+- Generated-image downloads must reject local/private network targets and validate size, MIME, and magic bytes.
+- Treat code licensing and each third-party asset license as separate concerns.
+- Never claim that AI output is automatically copyright-free.
 
 ## Required checks
 
 Before completing an implementation task, run:
 
 ```bash
+pnpm format:check
 pnpm lint
 pnpm typecheck
 pnpm test
-pnpm build
+pnpm build:all
+pnpm test:dist-smoke
 ```
 
 Report any check that could not run. Do not claim success without evidence.
-
-## Repository hygiene
-
-- Implement one milestone or issue at a time.
-- Do not silently broaden scope.
-- Add tests for behavior changes.
-- Preserve unrelated user changes.
-- Never commit secrets, downloaded media, caches, logs, or user projects.
-- Treat code licensing and third-party asset licensing as separate concerns.
