@@ -38,6 +38,28 @@ describe("FsSettingsStore", () => {
     expect(s.pexelsApiKey).toBe("px-test");
   });
 
+  it.skipIf(process.platform === "win32")(
+    "save restricts the settings directory to 0700 and file to 0600",
+    async () => {
+      const settingsDir = path.join(workspace, ".s2s");
+      const settingsPath = path.join(settingsDir, "settings.json");
+      await fs.mkdir(settingsDir, { mode: 0o777 });
+      await fs.writeFile(settingsPath, "{}\n", { mode: 0o666 });
+      await fs.chmod(settingsDir, 0o777);
+      await fs.chmod(settingsPath, 0o666);
+
+      await store.save({
+        plannerProvider: "stepfun",
+        stepApiKey: "step-secret",
+      });
+
+      const dirMode = (await fs.stat(settingsDir)).mode & 0o777;
+      const fileMode = (await fs.stat(settingsPath)).mode & 0o777;
+      expect(dirMode).toBe(0o700);
+      expect(fileMode).toBe(0o600);
+    },
+  );
+
   it("toView never exposes plaintext keys", async () => {
     await store.save({
       plannerProvider: "deepseek",

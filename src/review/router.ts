@@ -111,10 +111,16 @@ function validateSceneId(raw: string): string | null {
 const SaveSettingsBodySchema = z.strictObject({
   plannerProvider: z.enum(["fixture", "deepseek", "stepfun"]).optional(),
   deepseekApiKey: z.string().min(1).optional(),
-  deepseekBaseUrl: z.string().url().optional(),
+  deepseekBaseUrl: z
+    .string()
+    .regex(/^https:\/\/api\.deepseek\.com\/?$/)
+    .optional(),
   deepseekModel: z.string().min(1).optional(),
   stepApiKey: z.string().min(1).optional(),
-  stepBaseUrl: z.string().url().optional(),
+  stepBaseUrl: z
+    .string()
+    .regex(/^https:\/\/api\.stepfun\.com\/v1\/?$/)
+    .optional(),
   stepModel: z.string().min(1).optional(),
   stepImageModel: z.string().min(1).optional(),
   pexelsApiKey: z.string().min(1).optional(),

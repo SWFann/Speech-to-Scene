@@ -41,10 +41,12 @@ export class FsSettingsStore implements SettingsStore {
 
   async save(settings: Settings): Promise<void> {
     const dir = path.dirname(this.settingsPath);
-    await fs.mkdir(dir, { recursive: true });
+    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+    await fs.chmod(dir, 0o700);
     const json = JSON.stringify(settings, null, 2) + "\n";
     const bytes = new TextEncoder().encode(json);
     await atomicWrite(this.settingsPath, bytes, "settings");
+    await fs.chmod(this.settingsPath, 0o600);
   }
 
   toView(settings: Settings): SettingsView {
