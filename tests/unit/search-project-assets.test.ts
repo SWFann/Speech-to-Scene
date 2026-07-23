@@ -230,12 +230,13 @@ function makeDeps(
   provider: SearchProvider,
   cache: SearchCache,
   nowFn: () => Date,
+  linkGenerator?: SearchProjectAssetsDeps["linkGenerator"],
 ): SearchProjectAssetsDeps {
   return {
     repository,
     createProvider: vi.fn().mockResolvedValue(provider),
     createCache: vi.fn().mockReturnValue(cache),
-    linkGenerator: stubLinkGenerator,
+    linkGenerator: linkGenerator ?? stubLinkGenerator,
     now: nowFn,
   };
 }
@@ -488,6 +489,87 @@ describe("searchProjectAssets", (): void => {
       await expect(
         searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn)),
       ).rejects.toThrow();
+    });
+  });
+
+  describe("category interleaving", (): void => {
+    it("tags asset candidates with category=stock_library", async (): Promise<void> => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const { provider } = createMockProvider();
+      const cache = createMockCache();
+      const nowFn = (): Date => new Date();
+
+      await searchProjectAssets(makeInput(), makeDeps(repository, provider, cache, nowFn));
+
+      const candidates = project.scenes[0]!.search.candidates as Array<{
+        kind: string;
+        category?: string;
+      }>;
+      const assetCandidates = candidates.filter((c) => c.kind === "asset");
+      for (const c of assetCandidates) {
+        expect(c.category).toBe("stock_library");
+      }
+    });
+
+    it("interleaves asset and link candidates (links not all at end)", async (): Promise<void> => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const { provider } = createMockProvider();
+      const cache = createMockCache();
+      const nowFn = (): Date => new Date();
+
+      // Use real link generator so we get link candidates
+      const { DefaultLinkSuggestionGenerator } = await import(
+        "../../src/infrastructure/link-suggestion-generator.js"
+      );
+      const realLinkGen = new DefaultLinkSuggestionGenerator();
+      const deps = makeDeps(repository, provider, cache, nowFn, realLinkGen);
+
+      await searchProjectAssets(makeInput(), deps);
+
+      const candidates = project.scenes[0]!.search.candidates as Array<{
+        kind: string;
+        category?: string;
+      }>;
+
+      // Should have both asset and link candidates
+      const assetCount = candidates.filter((c) => c.kind === "asset").length;
+      const linkCount = candidates.filter((c) => c.kind === "link").length;
+      expect(assetCount).toBeGreaterThan(0);
+      expect(linkCount).toBeGreaterThan(0);
+
+      // The last candidate should NOT be a link (interleaving means links are spread out)
+      // With 2 assets and 14 links, the last item will be a link, but links should
+      // appear before the very end of all assets. Check that at least one link appears
+      // before the last asset.
+      const lastAssetIndex = Math.max(
+        ...candidates.map((c, i) => (c.kind === "asset" ? i : -1)),
+      );
+      const firstLinkIndex = candidates.findIndex((c) => c.kind === "link");
+      expect(firstLinkIndex).toBeLessThanOrEqual(lastAssetIndex);
+    });
+
+    it("assigns sequential ranks after interleaving", async (): Promise<void> => {
+      const project = createMockProject(1);
+      const repository = createMockRepository(project);
+      const { provider } = createMockProvider();
+      const cache = createMockCache();
+      const nowFn = (): Date => new Date();
+
+      const { DefaultLinkSuggestionGenerator } = await import(
+        "../../src/infrastructure/link-suggestion-generator.js"
+      );
+      const realLinkGen = new DefaultLinkSuggestionGenerator();
+      const deps = makeDeps(repository, provider, cache, nowFn, realLinkGen);
+
+      await searchProjectAssets(makeInput(), deps);
+
+      const candidates = project.scenes[0]!.search.candidates as Array<{ rank: number }>;
+      const ranks = candidates.map((c) => c.rank);
+      for (let i = 0; i < ranks.length; i++) {
+        expect(ranks[i]).toBe(i + 1);
+      }
     });
   });
 });

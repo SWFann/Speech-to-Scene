@@ -898,9 +898,10 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
     return;
   }
 
-  // InvalidArgumentError → 400 (e.g., bad project name for switch/delete)
+  // InvalidArgumentError → 400 (e.g., bad project name for switch/delete, image gen failure)
   if (code === "invalid_argument") {
-    sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid request");
+    const err = error as { message?: string; userHint?: string };
+    sendError(res, 400, ERROR_INVALID_REQUEST, err.message ?? "Invalid request", err.userHint);
     return;
   }
 

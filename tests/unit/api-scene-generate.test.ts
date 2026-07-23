@@ -263,6 +263,10 @@ async function startTestServer(
     generateSceneImage(input, {
       repository: repo,
       imageGenerator,
+      imageDownloader: {
+        download: (_projectRoot: string, imageUrl: string) => Promise.resolve(imageUrl),
+      },
+      serverPort: 0,
       generateId: () => `gen-${Date.now()}`,
       now: () => new Date(FIXED_NOW),
     });

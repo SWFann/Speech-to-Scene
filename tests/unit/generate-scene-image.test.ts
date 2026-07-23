@@ -30,6 +30,7 @@ import {
 } from "../../src/application/generate-scene-image.js";
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
 import type { ImageGenerator, ImageGenerateResult } from "../../src/application/ports/image-generator.js";
+import type { GeneratedImageDownloader } from "../../src/application/ports/generated-image-downloader.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
 import { SpeechToSceneProjectSchema } from "../../src/domain/project-schema.js";
 import { SceneNotFoundError, ProjectNotPlannedError } from "../../src/shared/errors.js";
@@ -258,9 +259,14 @@ describe("generateSceneImage", () => {
   } {
     const repo = new TestRepository(project);
     const generator = new FakeImageGenerator();
+    const imageDownloader: GeneratedImageDownloader = {
+      download: (_projectRoot: string, imageUrl: string) => Promise.resolve(imageUrl),
+    };
     const deps: GenerateSceneImageDeps = {
       repository: repo,
       imageGenerator: generator,
+      imageDownloader,
+      serverPort: 3210,
       generateId: () => FIXED_ID,
       now: () => FIXED_NOW,
     };

@@ -154,6 +154,21 @@ export const HttpsUrlSchema = z
   .url("必须是有效 URL")
   .refine((url) => url.startsWith("https://"), "必须使用 HTTPS 协议");
 
+/**
+ * URL schema for image URLs.
+ * Accepts HTTPS (remote) and HTTP for localhost (locally served images).
+ */
+export const ImageUrlSchema = z
+  .string()
+  .url("必须是有效 URL")
+  .refine(
+    (url) =>
+      url.startsWith("https://") ||
+      url.startsWith("http://127.0.0.1") ||
+      url.startsWith("http://localhost"),
+    "必须使用 HTTPS 或本地 HTTP 协议",
+  );
+
 // ---------------------------------------------------------------------------
 // Type exports for convenience
 // ---------------------------------------------------------------------------

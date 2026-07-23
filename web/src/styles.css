@@ -473,6 +473,93 @@ input {
   gap: 12px;
 }
 
+/* ---------- Category tabs ---------- */
+
+.category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.cat-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fafaf7;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.cat-tab:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.cat-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.cat-tab.active .cat-count {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.cat-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Category badge on cards ---------- */
+
+.cat-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cat-badge.cat-stock_library {
+  background: #e8f0fe;
+  color: #1a56c4;
+}
+
+.cat-badge.cat-video_platform {
+  background: #fce8e8;
+  color: #c5221f;
+}
+
+.cat-badge.cat-stock_site {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+.cat-badge.cat-social_media {
+  background: #fef7e0;
+  color: #b06000;
+}
+
+.cat-badge.cat-ai_generated {
+  background: #f3e8fd;
+  color: #8430ce;
+}
+
+.candidate-title {
+  gap: 6px;
+}
+
+
 .empty-candidates {
   padding: 32px 16px;
   text-align: center;
@@ -534,6 +621,32 @@ input {
   place-items: center;
   color: var(--faint);
   font-size: 12px;
+}
+
+/* Link card thumbnail with platform icon */
+.thumb-link {
+  background: #f0f0ec;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.platform-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.platform-icon span {
+  line-height: 1;
 }
 
 .media-type {

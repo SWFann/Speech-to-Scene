@@ -121,6 +121,13 @@ export function createReviewCommand(ctx: CommandContext): Command {
         // Start server with injected dependencies
         const assetProviderEnv = readEnv().assetProvider;
         const linkGenerator = new DefaultLinkSuggestionGenerator();
+        const { FsGeneratedImageDownloader } = await import(
+          "../../infrastructure/fs-generated-image-downloader.js"
+        );
+        const imageDownloader = new FsGeneratedImageDownloader();
+        const resolvedPort = port;
+        // Pre-declare a port ref so the generateSceneImage closure can read the actual bound port
+        const portRef: { port: number } = { port: resolvedPort };
         const searchSceneAssetsBound = (input: unknown): Promise<SearchProjectAssetsResult> =>
           searchSceneAssets(input, {
             repository: ctx.repository,
@@ -231,6 +238,8 @@ export function createReviewCommand(ctx: CommandContext): Command {
             return generateSceneImageUseCase(genInput, {
               repository: ctx.repository,
               imageGenerator,
+              imageDownloader,
+              serverPort: portRef.port,
               generateId: () => `gen-${crypto.randomUUID()}`,
               now: () => new Date(),
             });
@@ -276,6 +285,9 @@ export function createReviewCommand(ctx: CommandContext): Command {
           },
           deps,
         );
+
+        // Update the port ref to the actual bound port (may differ if port=0 was used)
+        portRef.port = handle.port;
 
         console.log(`Review server started:`);
         console.log(`  Project: ${resolvedProjectRoot}`);

@@ -28,6 +28,8 @@
 
 import http from "node:http";
 import path from "node:path";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
 
 import type {
   ReviewServerConfig,
@@ -195,6 +197,24 @@ function createRequestHandler(
         return;
       }
 
+      // Serve project assets (generated images, etc.) from the project's
+      // assets/ directory. Path format: /api/project-assets/<subpath>
+      if (urlPath.startsWith("/api/project-assets/")) {
+        const projectRoot = projectRootRef.current;
+        if (!projectRoot) {
+          sendError(res, 404, ERROR_NOT_FOUND, "No active project");
+          return;
+        }
+        serveProjectAsset(req, res, projectRoot, method, urlPath).catch(() => {
+          if (!res.headersSent) {
+            sendInternalError(res);
+          } else {
+            res.destroy();
+          }
+        });
+        return;
+      }
+
       // Check for malformed percent-encoding before falling through to 404.
       // A malformed path segment (e.g. /api/scenes/%E0%A4%A) must return
       // 400 invalid_request, not 404 or 500.
@@ -332,4 +352,97 @@ export async function startReviewServer(
     server.on("listening", onListening);
     server.listen(config.port, config.host);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Project asset serving (generated images, etc.)
+// ---------------------------------------------------------------------------
+
+const ASSET_MIME_TYPES: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+};
+
+/**
+ * Serves a file from the project's assets directory.
+ *
+ * URL format: /api/project-assets/<subpath>
+ * e.g., /api/project-assets/generated/abc.png → <projectRoot>/assets/generated/abc.png
+ *
+ * Security:
+ * - Path traversal is blocked (no `..` allowed)
+ * - Only files within the assets directory are served
+ * - Only GET and HEAD methods are allowed
+ */
+async function serveProjectAsset(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  projectRoot: string,
+  method: string,
+  urlPath: string,
+): Promise<void> {
+  if (method !== "GET" && method !== "HEAD") {
+    sendError(res, 405, ERROR_METHOD_NOT_ALLOWED, "Method not allowed");
+    return;
+  }
+
+  // Extract the subpath after /api/project-assets/
+  const subpath = urlPath.slice("/api/project-assets/".length);
+  if (!subpath || subpath.includes("..") || subpath.includes("\0")) {
+    sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid asset path");
+    return;
+  }
+
+  const assetsDir = path.resolve(projectRoot, "assets");
+  const filePath = path.resolve(assetsDir, subpath);
+
+  // Ensure the resolved path is within the assets directory
+  if (!filePath.startsWith(assetsDir + path.sep)) {
+    sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid asset path");
+    return;
+  }
+
+  try {
+    const stat = await fsp.stat(filePath);
+    if (!stat.isFile()) {
+      sendError(res, 404, ERROR_NOT_FOUND, "Asset not found");
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = ASSET_MIME_TYPES[ext] ?? "application/octet-stream";
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", stat.size);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+
+    res.statusCode = 200;
+
+    if (method === "HEAD") {
+      res.end();
+    } else {
+      const stream = fs.createReadStream(filePath);
+      stream.on("error", () => {
+        if (!res.headersSent) {
+          sendError(res, 500, "internal_error", "Internal server error");
+        } else {
+          res.destroy();
+        }
+      });
+      stream.pipe(res);
+    }
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === "ENOENT" || err.code === "EACCES") {
+      sendError(res, 404, ERROR_NOT_FOUND, "Asset not found");
+    } else {
+      if (!res.headersSent) {
+        sendError(res, 500, "internal_error", "Internal server error");
+      }
+    }
+  }
 }

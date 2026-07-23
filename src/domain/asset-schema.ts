@@ -17,11 +17,12 @@
 
 import { z } from "zod";
 import {
-  IdSchema,
-  NonEmptyTrimmedStringSchema,
-  PositiveIntegerSchema,
-  UtcDateTimeSchema,
-  HttpsUrlSchema,
+IdSchema,
+NonEmptyTrimmedStringSchema,
+PositiveIntegerSchema,
+UtcDateTimeSchema,
+HttpsUrlSchema,
+ImageUrlSchema,
 } from "./schema-primitives.js";
 
 // ---------------------------------------------------------------------------
@@ -200,9 +201,75 @@ export type AssetRights = z.infer<typeof AssetRightsSchema>;
  *
  * These platforms do not expose a public search API usable from the app, so
  * we only generate a search URL for the user to open manually.
+ *
+ * Categories:
+ * - video_platform: 小红书, 抖音, B站, 快手, 西瓜视频, YouTube
+ * - stock_site: 包图网, 千图网, 摄图网, 觅知网, 站酷, 花瓣网
+ * - social_media: 微博, 知乎
  */
-export const LinkPlatformSchema = z.enum(["xiaohongshu", "douyin", "bilibili", "youtube"]);
+export const LinkPlatformSchema = z.enum([
+  // Video platforms
+  "xiaohongshu",
+  "douyin",
+  "bilibili",
+  "kuaishou",
+  "xigua",
+  "youtube",
+  // Stock material sites
+  "baotu",
+  "588ku",
+  "699pic",
+  "mizhi",
+  "zcool",
+  "huaban",
+  // Social media
+  "weibo",
+  "zhihu",
+]);
 export type LinkPlatform = z.infer<typeof LinkPlatformSchema>;
+
+/**
+ * Category of a candidate, used for UI grouping/filtering.
+ *
+ * - `stock_library`: API-backed stock photo/video libraries (Pexels, Pixabay, etc.)
+ * - `video_platform`: Video-centric social platforms (小红书, 抖音, B站, etc.)
+ * - `stock_site`: Chinese stock material websites (包图网, 千图网, etc.)
+ * - `social_media`: General social media (微博, 知乎)
+ * - `ai_generated`: AI-generated images (StepFun, etc.)
+ */
+export const CandidateCategorySchema = z.enum([
+  "stock_library",
+  "video_platform",
+  "stock_site",
+  "social_media",
+  "ai_generated",
+]);
+export type CandidateCategory = z.infer<typeof CandidateCategorySchema>;
+
+/**
+ * Maps a link platform to its category.
+ */
+export function platformToCategory(platform: LinkPlatform): CandidateCategory {
+  switch (platform) {
+    case "xiaohongshu":
+    case "douyin":
+    case "bilibili":
+    case "kuaishou":
+    case "xigua":
+    case "youtube":
+      return "video_platform";
+    case "baotu":
+    case "588ku":
+    case "699pic":
+    case "mizhi":
+    case "zcool":
+    case "huaban":
+      return "stock_site";
+    case "weibo":
+    case "zhihu":
+      return "social_media";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Asset candidate (discriminated union)
@@ -249,6 +316,7 @@ export const AssetCandidateAssetSchema = z.strictObject({
   retrievedAt: UtcDateTimeSchema,
   matchedQueryId: IdSchema,
   rank: PositiveIntegerSchema,
+  category: CandidateCategorySchema.optional(),
 });
 
 export type AssetCandidateAsset = z.infer<typeof AssetCandidateAssetSchema>;
@@ -269,6 +337,7 @@ export const AssetCandidateLinkSchema = z.strictObject({
   retrievedAt: UtcDateTimeSchema,
   matchedQueryId: IdSchema,
   rank: PositiveIntegerSchema,
+  category: CandidateCategorySchema.optional(),
 });
 
 export type AssetCandidateLink = z.infer<typeof AssetCandidateLinkSchema>;
@@ -287,8 +356,8 @@ export const AssetCandidateGeneratedSchema = z.strictObject({
   id: IdSchema,
   provider: AssetProviderSnapshotSchema,
   prompt: NonEmptyTrimmedStringSchema,
-  imageUrl: HttpsUrlSchema,
-  thumbnailUrl: HttpsUrlSchema,
+  imageUrl: ImageUrlSchema,
+  thumbnailUrl: ImageUrlSchema,
   width: PositiveIntegerSchema,
   height: PositiveIntegerSchema,
   orientation: z.enum(["portrait", "landscape", "square"]),
@@ -296,6 +365,7 @@ export const AssetCandidateGeneratedSchema = z.strictObject({
   generatedAt: UtcDateTimeSchema,
   matchedQueryId: IdSchema,
   rank: PositiveIntegerSchema,
+  category: CandidateCategorySchema.optional(),
 });
 
 export type AssetCandidateGenerated = z.infer<typeof AssetCandidateGeneratedSchema>;

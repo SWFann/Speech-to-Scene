@@ -44,6 +44,31 @@ export interface ReviewAssetRightsView {
 /**
  * Asset-kind candidate (a library result with thumbnail/rights/dimensions).
  */
+/** Phase 3: candidate category for UI grouping/filtering. */
+export type CandidateCategory =
+  | "stock_library"
+  | "video_platform"
+  | "stock_site"
+  | "social_media"
+  | "ai_generated";
+
+/** Phase 3: all supported link platforms. */
+export type LinkPlatform =
+  | "xiaohongshu"
+  | "douyin"
+  | "bilibili"
+  | "kuaishou"
+  | "xigua"
+  | "youtube"
+  | "baotu"
+  | "588ku"
+  | "699pic"
+  | "mizhi"
+  | "zcool"
+  | "huaban"
+  | "weibo"
+  | "zhihu";
+
 export interface ReviewAssetCandidateAssetView {
   readonly kind: "asset";
   readonly id: string;
@@ -65,6 +90,7 @@ export interface ReviewAssetCandidateAssetView {
   readonly retrievedAt: string;
   readonly matchedQueryId: string;
   readonly rank: number;
+  readonly category?: CandidateCategory;
 }
 
 /**
@@ -73,12 +99,13 @@ export interface ReviewAssetCandidateAssetView {
 export interface ReviewAssetCandidateLinkView {
   readonly kind: "link";
   readonly id: string;
-  readonly platform: "xiaohongshu" | "douyin" | "bilibili" | "youtube";
+  readonly platform: LinkPlatform;
   readonly searchUrl: string;
   readonly keyword: string;
   readonly retrievedAt: string;
   readonly matchedQueryId: string;
   readonly rank: number;
+  readonly category?: CandidateCategory;
 }
 
 /**
@@ -98,6 +125,7 @@ export interface ReviewAssetCandidateGeneratedView {
   readonly generatedAt: string;
   readonly matchedQueryId: string;
   readonly rank: number;
+  readonly category?: CandidateCategory;
 }
 
 /**

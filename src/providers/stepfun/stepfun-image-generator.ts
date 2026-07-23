@@ -45,18 +45,21 @@ const STEPFUN_IMAGE_SNAPSHOT: AssetProviderSnapshot = {
   termsCheckedAt: "2026-07-18T00:00:00.000Z",
 };
 
-// Aspect ratio → size mapping (StepFun uses OpenAI-compatible size strings)
+// Aspect ratio → size mapping for step-image-edit-2
+// Supported sizes: 1024x1024, 768x1360, 896x1184, 1360x768, 1184x896
 const ASPECT_SIZE: Record<string, string> = {
-  "9:16": "1024x1792",
-  "16:9": "1792x1024",
+  "9:16": "768x1360",
+  "16:9": "1360x768",
   "1:1": "1024x1024",
 };
 
 // Size → dimensions mapping for parsing the response
 const SIZE_DIMENSIONS: Record<string, { width: number; height: number }> = {
   "1024x1024": { width: 1024, height: 1024 },
-  "1024x1792": { width: 1024, height: 1792 },
-  "1792x1024": { width: 1792, height: 1024 },
+  "768x1360": { width: 768, height: 1360 },
+  "896x1184": { width: 896, height: 1184 },
+  "1360x768": { width: 1360, height: 768 },
+  "1184x896": { width: 1184, height: 896 },
 };
 
 // ---------------------------------------------------------------------------

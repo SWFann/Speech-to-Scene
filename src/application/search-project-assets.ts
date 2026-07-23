@@ -26,7 +26,7 @@ import type { SearchCache, CacheSearchInput } from "./ports/search-cache.js";
 import { computeProviderCacheKey } from "./ports/search-cache.js";
 import type { ProjectRepository } from "./ports/project-repository.js";
 import type { Scene } from "../domain/scene-schema.js";
-import type { AssetCandidateLink } from "../domain/asset-schema.js";
+import type { AssetCandidateLink, AssetCandidate } from "../domain/asset-schema.js";
 import { SpeechToSceneProjectSchema } from "../domain/project-schema.js";
 import { AssetCandidateSchema } from "../domain/asset-schema.js";
 import { ProjectNotPlannedError, ProjectValidationError } from "../shared/errors.js";
@@ -211,6 +211,14 @@ export async function searchProjectAssets(
     // Deduplicate asset candidates across providers and queries
     const dedupedAssets = deduplicateCandidates(assetCandidates);
 
+    // Tag asset candidates with category: stock_library
+    for (const asset of dedupedAssets) {
+      const a = asset as { category?: string };
+      if (asset.kind === "asset" && !a.category) {
+        a.category = "stock_library";
+      }
+    }
+
     // Generate link candidates from the first enabled query
     const firstQuery = enabledQueries[0]!;
     const keyword = firstQuery.query;
@@ -221,8 +229,15 @@ export async function searchProjectAssets(
       retrievedAt,
     });
 
-    // Combine: asset candidates first, then link cards
-    const combined = [...dedupedAssets, ...linkCandidates];
+    // Interleave candidates by category so link cards are not always at the end.
+    // Round-robin: take one from each category group in turn.
+    const combined = interleaveByCategory(dedupedAssets, linkCandidates);
+
+    // Re-assign ranks so they are sequential after interleaving
+    combined.forEach((c, i) => {
+      c.rank = i + 1;
+    });
+
     scene.search.candidates = combined;
 
     if (combined.length > 0) {
@@ -403,4 +418,55 @@ function deduplicateCandidates(candidates: readonly PortAssetCandidate[]): PortA
 
   // Sort by rank and return
   return Array.from(seen.values()).sort((a, b) => a.rank - b.rank);
+}
+
+/**
+ * Interleaves asset and link candidates by category so that link cards
+ * (video_platform, stock_site, social_media) are not all pushed to the end.
+ *
+ * Groups candidates by category, then round-robins: takes one candidate from
+ * each non-empty group in turn. This ensures a mix of stock library results,
+ * video platform links, and stock site links throughout the list.
+ *
+ * Categories order: stock_library, video_platform, stock_site, social_media, ai_generated
+ */
+function interleaveByCategory(
+  assets: readonly AssetCandidate[],
+  links: readonly AssetCandidateLink[],
+): AssetCandidate[] {
+  const all: AssetCandidate[] = [...assets, ...links];
+
+  // Group by category
+  const categoryOrder = ["stock_library", "video_platform", "stock_site", "social_media", "ai_generated"] as const;
+  const groups: Map<string, AssetCandidate[]> = new Map();
+  for (const cat of categoryOrder) {
+    groups.set(cat, []);
+  }
+
+  for (const candidate of all) {
+    const cat = candidate.category ?? (candidate.kind === "generated" ? "ai_generated" : "stock_library");
+    const list = groups.get(cat);
+    if (list) {
+      list.push(candidate);
+    } else {
+      // Unknown category — put in stock_library as fallback
+      groups.get("stock_library")!.push(candidate);
+    }
+  }
+
+  // Round-robin: take one from each group in turn
+  const result: AssetCandidate[] = [];
+  let remaining = all.length;
+  while (remaining > 0) {
+    for (const cat of categoryOrder) {
+      const list = groups.get(cat);
+      if (list && list.length > 0) {
+        result.push(list.shift()!);
+        remaining--;
+        if (remaining === 0) break;
+      }
+    }
+  }
+
+  return result;
 }

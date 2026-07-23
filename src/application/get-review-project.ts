@@ -31,6 +31,8 @@ import type {
   AssetRights,
   AssetProviderSnapshot,
   RightsEvidence,
+  LinkPlatform,
+  CandidateCategory,
 } from "../domain/asset-schema.js";
 import {
   getProjectStatus,
@@ -107,6 +109,7 @@ export interface ReviewAssetCandidateAssetView {
   readonly retrievedAt: string;
   readonly matchedQueryId: string;
   readonly rank: number;
+  readonly category?: CandidateCategory;
 }
 
 /**
@@ -115,12 +118,13 @@ export interface ReviewAssetCandidateAssetView {
 export interface ReviewAssetCandidateLinkView {
   readonly kind: "link";
   readonly id: string;
-  readonly platform: "xiaohongshu" | "douyin" | "bilibili" | "youtube";
+  readonly platform: LinkPlatform;
   readonly searchUrl: string;
   readonly keyword: string;
   readonly retrievedAt: string;
   readonly matchedQueryId: string;
   readonly rank: number;
+  readonly category?: CandidateCategory;
 }
 
 /**
@@ -140,6 +144,7 @@ export interface ReviewAssetCandidateGeneratedView {
   readonly generatedAt: string;
   readonly matchedQueryId: string;
   readonly rank: number;
+  readonly category?: CandidateCategory;
 }
 
 /**
@@ -346,6 +351,7 @@ function mapAssetCandidate(candidate: AssetCandidateAsset): ReviewAssetCandidate
     retrievedAt: candidate.retrievedAt,
     matchedQueryId: candidate.matchedQueryId,
     rank: candidate.rank,
+    ...(candidate.category !== undefined ? { category: candidate.category } : {}),
     ...(candidate.previewUrl !== undefined ? { previewUrl: candidate.previewUrl } : {}),
     ...(candidate.durationSeconds !== undefined
       ? { durationSeconds: candidate.durationSeconds }
@@ -363,6 +369,7 @@ function mapLinkCandidate(candidate: AssetCandidateLink): ReviewAssetCandidateLi
     retrievedAt: candidate.retrievedAt,
     matchedQueryId: candidate.matchedQueryId,
     rank: candidate.rank,
+    ...(candidate.category !== undefined ? { category: candidate.category } : {}),
   };
 }
 
@@ -381,6 +388,7 @@ function mapGeneratedCandidate(candidate: AssetCandidateGenerated): ReviewAssetC
     generatedAt: candidate.generatedAt,
     matchedQueryId: candidate.matchedQueryId,
     rank: candidate.rank,
+    ...(candidate.category !== undefined ? { category: candidate.category } : {}),
   };
 }
 

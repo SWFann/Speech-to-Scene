@@ -76,8 +76,8 @@ describe("StepFunImageGenerator", () => {
 
     expect(result.imageUrl).toBe("https://example.com/generated.png");
     expect(result.thumbnailUrl).toBe("https://example.com/generated.png");
-    expect(result.width).toBe(1024);
-    expect(result.height).toBe(1792);
+    expect(result.width).toBe(768);
+    expect(result.height).toBe(1360);
     expect(result.model).toBe("step-image-edit-2");
   });
 
@@ -94,13 +94,13 @@ describe("StepFunImageGenerator", () => {
       client,
     });
 
-    // 9:16 → 1024x1792
+    // 9:16 → 768x1360 (step-image-edit-2 supported size)
     await generator.generate({ prompt: "test", aspectRatio: "9:16" });
-    expect(client.recordedRequests[0]!.body).toMatchObject({ size: "1024x1792", n: 1 });
+    expect(client.recordedRequests[0]!.body).toMatchObject({ size: "768x1360", n: 1 });
 
-    // 16:9 → 1792x1024
+    // 16:9 → 1360x768
     await generator.generate({ prompt: "test", aspectRatio: "16:9" });
-    expect(client.recordedRequests[1]!.body).toMatchObject({ size: "1792x1024" });
+    expect(client.recordedRequests[1]!.body).toMatchObject({ size: "1360x768" });
 
     // 1:1 → 1024x1024
     await generator.generate({ prompt: "test", aspectRatio: "1:1" });

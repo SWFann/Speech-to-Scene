@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import type { ProjectRepository } from "./ports/project-repository.js";
 import type { ImageGenerator } from "./ports/image-generator.js";
+import type { GeneratedImageDownloader } from "./ports/generated-image-downloader.js";
 import type { SpeechToSceneProject } from "../domain/project-schema.js";
 import { SpeechToSceneProjectSchema } from "../domain/project-schema.js";
 import type { Scene } from "../domain/scene-schema.js";
@@ -60,6 +61,10 @@ export type GenerateSceneImageInput = z.infer<typeof GenerateSceneImageInputSche
 export interface GenerateSceneImageDeps {
   readonly repository: ProjectRepository;
   readonly imageGenerator: ImageGenerator;
+  /** Downloads generated images to the project's assets directory. */
+  readonly imageDownloader: GeneratedImageDownloader;
+  /** The review server port (for constructing local image URLs). */
+  readonly serverPort: number;
   /** Generates a unique candidate ID. Injected for testability. */
   readonly generateId: () => string;
   /** Clock for deterministic timestamps. */
@@ -137,6 +142,22 @@ export async function generateSceneImage(
   // 5. Generate image
   const result = await deps.imageGenerator.generate({ prompt, aspectRatio });
 
+  // 5b. Download the image locally so it persists beyond the remote URL's expiry
+  let imageUrl = result.imageUrl;
+  let thumbnailUrl = result.thumbnailUrl;
+  try {
+    const localUrl = await deps.imageDownloader.download(
+      projectRoot,
+      result.imageUrl,
+      deps.generateId(),
+      deps.serverPort,
+    );
+    imageUrl = localUrl;
+    thumbnailUrl = localUrl;
+  } catch {
+    // Fall back to the remote URL if download fails (still valid for ~24h)
+  }
+
   // 6. Deep-clone the project for mutation
   const updated = JSON.parse(JSON.stringify(project)) as SpeechToSceneProject;
   const scene = updated.scenes[sceneIndex]!;
@@ -155,8 +176,8 @@ export async function generateSceneImage(
     id: deps.generateId(),
     provider: result.providerSnapshot,
     prompt,
-    imageUrl: result.imageUrl,
-    thumbnailUrl: result.thumbnailUrl,
+    imageUrl,
+    thumbnailUrl,
     width: result.width,
     height: result.height,
     orientation:

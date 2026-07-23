@@ -1,22 +1,99 @@
-import { ImageIcon, Video, ExternalLink, Link2, Sparkles } from "lucide-react";
+import { ImageIcon, Video, ExternalLink, Sparkles } from "lucide-react";
 
 import type {
   ReviewAssetCandidateView,
   ReviewAssetCandidateAssetView,
   ReviewAssetCandidateLinkView,
   ReviewAssetCandidateGeneratedView,
+  CandidateCategory,
+  LinkPlatform,
 } from "../types.js";
 
 interface CandidateCardProps {
   candidate: ReviewAssetCandidateView;
 }
 
-const PLATFORM_LABELS: Record<ReviewAssetCandidateLinkView["platform"], string> = {
+const PLATFORM_LABELS: Record<LinkPlatform, string> = {
   xiaohongshu: "小红书",
   douyin: "抖音",
   bilibili: "哔哩哔哩",
+  kuaishou: "快手",
+  xigua: "西瓜视频",
   youtube: "YouTube",
+  baotu: "包图网",
+  "588ku": "千图网",
+  "699pic": "摄图网",
+  mizhi: "觅知网",
+  zcool: "站酷",
+  huaban: "花瓣网",
+  weibo: "微博",
+  zhihu: "知乎",
 };
+
+/** Brand colors for each platform (used for the icon background). */
+const PLATFORM_COLORS: Record<LinkPlatform, string> = {
+  xiaohongshu: "#ff2741",
+  douyin: "#000000",
+  bilibili: "#fb7299",
+  kuaishou: "#ff4906",
+  xigua: "#ff4040",
+  youtube: "#ff0000",
+  baotu: "#ff6b00",
+  "588ku": "#ff7a00",
+  "699pic": "#ff5a5f",
+  mizhi: "#3b82f6",
+  zcool: "#ffba00",
+  huaban: "#e85a5a",
+  weibo: "#e6162d",
+  zhihu: "#0084ff",
+};
+
+/** Short text for the platform icon (1-2 chars). */
+const PLATFORM_ICONS: Record<LinkPlatform, string> = {
+  xiaohongshu: "红",
+  douyin: "抖",
+  bilibili: "B",
+  kuaishou: "快",
+  xigua: "西",
+  youtube: "▶",
+  baotu: "包",
+  "588ku": "千",
+  "699pic": "摄",
+  mizhi: "觅",
+  zcool: "酷",
+  huaban: "花",
+  weibo: "微博",
+  zhihu: "知",
+};
+
+function PlatformIcon({ platform }: { platform: LinkPlatform }): React.ReactElement {
+  const color = PLATFORM_COLORS[platform] ?? "#606874";
+  const text = PLATFORM_ICONS[platform] ?? "?";
+  return (
+    <div className="platform-icon" style={{ backgroundColor: color }}>
+      <span>{text}</span>
+    </div>
+  );
+}
+
+const CATEGORY_LABELS: Record<CandidateCategory, string> = {
+  stock_library: "素材库",
+  video_platform: "视频平台",
+  stock_site: "素材站",
+  social_media: "社交媒体",
+  ai_generated: "AI 生成",
+};
+
+function deriveCategory(candidate: ReviewAssetCandidateView): CandidateCategory {
+  if (candidate.category) return candidate.category;
+  if (candidate.kind === "generated") return "ai_generated";
+  if (candidate.kind === "asset") return "stock_library";
+  return "social_media";
+}
+
+function CategoryBadge({ category }: { category: CandidateCategory }): React.ReactElement {
+  return <span className={`cat-badge cat-${category}`}>{CATEGORY_LABELS[category]}</span>;
+}
 
 function rightsBadge(label: string, value: string): { text: string; cls: string } | null {
   const v = value.toLowerCase();
@@ -69,13 +146,14 @@ function AssetCandidateCard({ candidate }: { candidate: ReviewAssetCandidateAsse
       </div>
       <div className="candidate-body">
         <div className="candidate-title">
+          <CategoryBadge category={deriveCategory(candidate)} />
           <strong>
             {candidate.width}×{candidate.height}
             {candidate.durationSeconds ? ` · ${candidate.durationSeconds}s` : ""}
           </strong>
         </div>
         <p>
-          {candidate.orientation} · 排名 #{candidate.rank}
+          {candidate.provider.name} · {candidate.orientation} · 排名 #{candidate.rank}
         </p>
         <div className="candidate-creator">
           {candidate.creator.name && <span>作者: {candidate.creator.name}</span>}
@@ -107,11 +185,12 @@ function LinkCandidateCard({ candidate }: { candidate: ReviewAssetCandidateLinkV
   return (
     <article className="candidate link-card">
       <div className="thumb thumb-link">
-        <Link2 size={32} />
+        <PlatformIcon platform={candidate.platform} />
         <span className="media-type">{platformLabel}</span>
       </div>
       <div className="candidate-body">
         <div className="candidate-title">
+          <CategoryBadge category={deriveCategory(candidate)} />
           <strong>{platformLabel} 搜索</strong>
         </div>
         <p>关键词：{candidate.keyword}</p>
@@ -160,6 +239,7 @@ function GeneratedCandidateCard({
       </div>
       <div className="candidate-body">
         <div className="candidate-title">
+          <CategoryBadge category={deriveCategory(candidate)} />
           <strong>
             {candidate.width}×{candidate.height}
           </strong>

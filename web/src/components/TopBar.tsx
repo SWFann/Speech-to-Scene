@@ -94,7 +94,7 @@ export function TopBar({
       </div>
       {fixtureMode && (
         <div className="fixture-banner">
-          当前为测试模式（fixture）：场景与素材为假数据。请在「设置」配置 API Key 后点「重新上传」重新生成。
+          当前使用 Fixture 测试模式（场景或素材为模拟数据）。请在「设置」中配置 StepFun / DeepSeek 和 Pexels API Key，然后点「重新上传」使用真实数据生成。
         </div>
       )}
     </header>
