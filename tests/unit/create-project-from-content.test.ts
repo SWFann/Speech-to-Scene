@@ -7,10 +7,11 @@ import {
   createProjectFromContent,
   type CreateProjectFromContentInput,
 } from "../../src/application/create-project-from-content.js";
+import type { ProjectScaffolder } from "../../src/application/ports/project-scaffolder.js";
 import { SystemClock, SystemIdGenerator } from "../../src/infrastructure/system-adapters.js";
 import { JsonProjectRepository } from "../../src/infrastructure/json-project-repository.js";
 import { FileSystemProjectScaffolder } from "../../src/infrastructure/project-scaffolder.js";
-import { ProjectAlreadyExistsError } from "../../src/shared/errors.js";
+import { ProjectAlreadyExistsError, ProjectWriteError } from "../../src/shared/errors.js";
 
 const tempDirs: string[] = [];
 
@@ -124,5 +125,59 @@ describe("createProjectFromContent", () => {
       code: "EEXIST",
     });
     await expect(fs.readFile(preservedFile, "utf-8")).resolves.toBe("must survive");
+  });
+
+  it("maps a concurrent root creation race to ProjectAlreadyExistsError", async () => {
+    const dir = await makeTempDir("s2s-create-race-");
+    const projectDir = path.join(dir, "race");
+    const scaffolder: ProjectScaffolder = {
+      ...new FileSystemProjectScaffolder(),
+      createRoot: () =>
+        Promise.reject(Object.assign(new Error("already exists"), { code: "EEXIST" })),
+      createSubdirectories: () => Promise.resolve(),
+      copySourceDocument: () => Promise.resolve("script.md"),
+      writeSentinel: () => Promise.resolve(),
+      removeSentinel: () => Promise.resolve(),
+      checkSentinel: () => Promise.resolve(false),
+      hasAnySentinel: () => Promise.resolve(false),
+    };
+
+    await expect(
+      createProjectFromContent(
+        validInput(projectDir),
+        new SystemClock(),
+        new SystemIdGenerator(),
+        new JsonProjectRepository(),
+        scaffolder,
+      ),
+    ).rejects.toThrow(ProjectAlreadyExistsError);
+  });
+
+  it("removes a root it created when the sentinel cannot be written", async () => {
+    const dir = await makeTempDir("s2s-sentinel-failure-");
+    const projectDir = path.join(dir, "project");
+    const realScaffolder = new FileSystemProjectScaffolder();
+    const scaffolder: ProjectScaffolder = {
+      createRoot: (root) => realScaffolder.createRoot(root),
+      createSubdirectories: (root) => realScaffolder.createSubdirectories(root),
+      copySourceDocument: (root, bytes, fileName) =>
+        realScaffolder.copySourceDocument(root, bytes, fileName),
+      writeSentinel: () => Promise.reject(new Error("sentinel write failed")),
+      removeSentinel: (root) => realScaffolder.removeSentinel(root),
+      checkSentinel: () => Promise.resolve(false),
+      hasAnySentinel: (root) => realScaffolder.hasAnySentinel(root),
+    };
+
+    await expect(
+      createProjectFromContent(
+        validInput(projectDir),
+        new SystemClock(),
+        new SystemIdGenerator(),
+        new JsonProjectRepository(),
+        scaffolder,
+      ),
+    ).rejects.toThrow(ProjectWriteError);
+
+    await expect(fs.access(projectDir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

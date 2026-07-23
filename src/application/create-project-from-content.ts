@@ -129,9 +129,18 @@ export async function createProjectFromContent(
     scenes: [],
   });
 
-  await scaffolder.createRoot(resolvedProjectRoot);
-  await scaffolder.writeSentinel(resolvedProjectRoot, sentinelToken);
+  let createdRoot = false;
   try {
+    try {
+      await scaffolder.createRoot(resolvedProjectRoot);
+      createdRoot = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new ProjectAlreadyExistsError(resolvedProjectRoot);
+      }
+      throw error;
+    }
+    await scaffolder.writeSentinel(resolvedProjectRoot, sentinelToken);
     await scaffolder.createSubdirectories(resolvedProjectRoot);
     await scaffolder.copySourceDocument(resolvedProjectRoot, sourceBytes, meta.originalFileName);
     await repository.create(resolvedProjectRoot, initialProject);
@@ -145,8 +154,13 @@ export async function createProjectFromContent(
       createdAt,
     };
   } catch (error) {
-    const owns = await scaffolder.checkSentinel(resolvedProjectRoot, sentinelToken);
-    if (owns) {
+    if (error instanceof ProjectAlreadyExistsError) {
+      throw error;
+    }
+    const owns = createdRoot
+      ? await scaffolder.checkSentinel(resolvedProjectRoot, sentinelToken)
+      : false;
+    if (createdRoot || owns) {
       try {
         await fs.rm(resolvedProjectRoot, { recursive: true, force: true });
       } catch {

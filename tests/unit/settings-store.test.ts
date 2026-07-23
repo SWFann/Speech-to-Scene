@@ -61,6 +61,28 @@ describe("FsSettingsStore", () => {
     },
   );
 
+  it.skipIf(process.platform === "win32")(
+    "load repairs permissive settings permissions from an older installation",
+    async () => {
+      const settingsDir = path.join(workspace, ".s2s");
+      const settingsPath = path.join(settingsDir, "settings.json");
+      await fs.mkdir(settingsDir, { mode: 0o777 });
+      await fs.writeFile(
+        settingsPath,
+        JSON.stringify({ plannerProvider: "stepfun", stepApiKey: "step-secret" }),
+        { mode: 0o666 },
+      );
+      await fs.chmod(settingsDir, 0o777);
+      await fs.chmod(settingsPath, 0o666);
+
+      const loaded = await store.load();
+
+      expect("stepApiKey" in loaded).toBe(true);
+      expect((await fs.stat(settingsDir)).mode & 0o777).toBe(0o700);
+      expect((await fs.stat(settingsPath)).mode & 0o777).toBe(0o600);
+    },
+  );
+
   it("toView never exposes plaintext keys", async () => {
     await store.save({
       plannerProvider: "deepseek",

@@ -192,6 +192,31 @@ describe("FileSystemWorkspaceScanner", () => {
       await expect(fs.access(outside)).resolves.toBeUndefined();
     });
 
+    it("restores the original project name when the final removal fails", async () => {
+      const workspace = await makeTempDir();
+      const projectDir = path.join(workspace, "busy-project");
+      await fs.mkdir(projectDir);
+      await writeFile(projectDir, PROJECT_FILE_NAME, validProjectJson());
+      await writeFile(projectDir, "important.txt", "keep me");
+      const scannerWithFailingRemove = Reflect.construct(FileSystemWorkspaceScanner, [
+        {
+          rename: fs.rename.bind(fs),
+          rm: () => Promise.reject(new Error("resource busy")),
+        },
+      ]);
+
+      await expect(scannerWithFailingRemove.deleteProject(projectDir)).rejects.toThrow(
+        "resource busy",
+      );
+
+      await expect(fs.readFile(path.join(projectDir, "important.txt"), "utf-8")).resolves.toBe(
+        "keep me",
+      );
+      expect(
+        (await fs.readdir(workspace)).filter((name) => name.startsWith(".s2s-delete-")),
+      ).toEqual([]);
+    });
+
     it("rejects path traversal in project root", async () => {
       await expect(scanner.deleteProject("/test/../../etc/passwd")).rejects.toThrow(
         "path traversal",

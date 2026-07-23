@@ -36,6 +36,9 @@ export class FsSettingsStore implements SettingsStore {
 
   async load(): Promise<Settings> {
     try {
+      const dir = path.dirname(this.settingsPath);
+      await fs.chmod(dir, 0o700);
+      await fs.chmod(this.settingsPath, 0o600);
       const raw = await fs.readFile(this.settingsPath, "utf-8");
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       return this.normalize(parsed);

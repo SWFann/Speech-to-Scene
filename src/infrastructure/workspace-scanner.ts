@@ -32,11 +32,23 @@ import { hasPathTraversal } from "./project-paths.js";
 /** Directory names to skip during workspace scanning. */
 const SKIP_DIRS = new Set([".s2s"]);
 
+interface WorkspaceDeleteOperations {
+  readonly rename: typeof fs.rename;
+  readonly rm: typeof fs.rm;
+}
+
 // ---------------------------------------------------------------------------
 // FileSystemWorkspaceScanner
 // ---------------------------------------------------------------------------
 
 export class FileSystemWorkspaceScanner implements WorkspaceScanner {
+  constructor(
+    private readonly deleteOperations: WorkspaceDeleteOperations = {
+      rename: fs.rename,
+      rm: fs.rm,
+    },
+  ) {}
+
   /**
    * Scan the workspace root for project subdirectories.
    *
@@ -59,7 +71,7 @@ export class FileSystemWorkspaceScanner implements WorkspaceScanner {
         if (!entry.isDirectory()) continue;
 
         // Skip the settings directory and other skip-list entries
-        if (SKIP_DIRS.has(entry.name)) continue;
+        if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".s2s-delete-")) continue;
 
         // Check for project file
         const projectFilePath = path.join(resolved, entry.name, PROJECT_FILE_NAME);
@@ -124,7 +136,7 @@ export class FileSystemWorkspaceScanner implements WorkspaceScanner {
     // Move the exact directory entry first. Validation then happens on the
     // quarantined inode, preventing a path swap between validation and delete.
     const quarantinePath = path.join(parentRealPath, `.s2s-delete-${randomUUID()}`);
-    await fs.rename(targetRealPath, quarantinePath);
+    await this.deleteOperations.rename(targetRealPath, quarantinePath);
 
     try {
       const quarantineStat = await fs.lstat(quarantinePath);
@@ -135,7 +147,7 @@ export class FileSystemWorkspaceScanner implements WorkspaceScanner {
       SpeechToSceneProjectSchema.parse(JSON.parse(projectFile) as unknown);
     } catch (error) {
       try {
-        await fs.rename(quarantinePath, targetRealPath);
+        await this.deleteOperations.rename(quarantinePath, targetRealPath);
       } catch {
         // Keep the quarantined directory intact if another process occupied
         // the original path. Never delete data after failed validation.
@@ -145,6 +157,19 @@ export class FileSystemWorkspaceScanner implements WorkspaceScanner {
       });
     }
 
-    await fs.rm(quarantinePath, { recursive: true, force: false });
+    try {
+      await this.deleteOperations.rm(quarantinePath, { recursive: true, force: false });
+    } catch (error) {
+      try {
+        await this.deleteOperations.rename(quarantinePath, targetRealPath);
+      } catch (restoreError) {
+        throw new AggregateError(
+          [error, restoreError],
+          `Project deletion failed and recovery is required at ${quarantinePath}`,
+          { cause: restoreError },
+        );
+      }
+      throw error;
+    }
   }
 }
