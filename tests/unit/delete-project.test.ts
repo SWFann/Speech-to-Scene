@@ -48,6 +48,37 @@ async function makeWorkspace(): Promise<string> {
   return workspace;
 }
 
+function validProjectJson(): string {
+  return JSON.stringify({
+    schemaVersion: "0.1",
+    project: {
+      id: "project-test",
+      title: "Test project",
+      createdAt: "2026-07-13T10:00:00.000Z",
+      updatedAt: "2026-07-13T10:00:00.000Z",
+      language: "zh-CN",
+      aspectRatio: "9:16",
+      style: "knowledge",
+      assetUsePolicy: {
+        intendedUse: "commercial_capable",
+        willModify: true,
+      },
+    },
+    source: {
+      path: "script.md",
+      originalFileName: "script.md",
+      sha256: "a".repeat(64),
+      encoding: "utf-8",
+      sizeBytes: 1,
+      textLengthUtf16: 1,
+      offsetUnit: "utf16_code_unit",
+      blocks: [],
+    },
+    generation: null,
+    scenes: [],
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -57,7 +88,7 @@ describe("deleteProject", () => {
     const workspaceRoot = await makeWorkspace();
     const projectRoot = path.join(workspaceRoot, "demo");
     await fs.mkdir(projectRoot);
-    await fs.writeFile(path.join(projectRoot, PROJECT_FILE_NAME), "{}\n");
+    await fs.writeFile(path.join(projectRoot, PROJECT_FILE_NAME), validProjectJson());
     await fs.writeFile(path.join(projectRoot, "script.md"), "keep only until deletion");
 
     const result = await deleteProject(

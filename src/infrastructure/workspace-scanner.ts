@@ -15,11 +15,13 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type {
   WorkspaceScanner,
   WorkspaceDirEntry,
 } from "../application/ports/workspace-scanner.js";
+import { SpeechToSceneProjectSchema } from "../domain/project-schema.js";
 import { PROJECT_FILE_NAME } from "../shared/constants.js";
 import { hasPathTraversal } from "./project-paths.js";
 
@@ -103,7 +105,46 @@ export class FileSystemWorkspaceScanner implements WorkspaceScanner {
       throw new Error("Refusing to delete filesystem root");
     }
 
-    // Use recursive rm with force to handle non-existent files gracefully
-    await fs.rm(resolved, { recursive: true, force: true });
+    const [parentRealPath, targetStat] = await Promise.all([
+      fs.realpath(parent),
+      fs.lstat(resolved),
+    ]);
+    if (targetStat.isSymbolicLink()) {
+      throw new Error("Refusing to delete a symbolic link");
+    }
+    if (!targetStat.isDirectory()) {
+      throw new Error("Project root is not a directory");
+    }
+
+    const targetRealPath = await fs.realpath(resolved);
+    if (path.dirname(targetRealPath) !== parentRealPath) {
+      throw new Error("Project root is outside its workspace");
+    }
+
+    // Move the exact directory entry first. Validation then happens on the
+    // quarantined inode, preventing a path swap between validation and delete.
+    const quarantinePath = path.join(parentRealPath, `.s2s-delete-${randomUUID()}`);
+    await fs.rename(targetRealPath, quarantinePath);
+
+    try {
+      const quarantineStat = await fs.lstat(quarantinePath);
+      if (quarantineStat.isSymbolicLink() || !quarantineStat.isDirectory()) {
+        throw new Error("Project root is not a safe directory");
+      }
+      const projectFile = await fs.readFile(path.join(quarantinePath, PROJECT_FILE_NAME), "utf-8");
+      SpeechToSceneProjectSchema.parse(JSON.parse(projectFile) as unknown);
+    } catch (error) {
+      try {
+        await fs.rename(quarantinePath, targetRealPath);
+      } catch {
+        // Keep the quarantined directory intact if another process occupied
+        // the original path. Never delete data after failed validation.
+      }
+      throw new Error("Refusing to delete a directory without a valid Speech-to-Scene project", {
+        cause: error,
+      });
+    }
+
+    await fs.rm(quarantinePath, { recursive: true, force: false });
   }
 }
