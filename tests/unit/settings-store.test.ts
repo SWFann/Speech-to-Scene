@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 
 import { FsSettingsStore } from "../../src/infrastructure/settings-store.js";
+import { InvalidArgumentError } from "../../src/shared/errors.js";
 
 describe("FsSettingsStore", () => {
   let workspace: string;
@@ -80,5 +81,25 @@ describe("FsSettingsStore", () => {
     const view = store.toView({ plannerProvider: "fixture" });
     expect(view.hasDeepseekKey).toBe(false);
     expect(view.hasPexelsKey).toBe(false);
+  });
+
+  it("rejects a directly tampered StepFun base URL without exposing the key", async () => {
+    const settingsDir = path.join(workspace, ".s2s");
+    await fs.mkdir(settingsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(settingsDir, "settings.json"),
+      JSON.stringify({
+        plannerProvider: "stepfun",
+        stepApiKey: "step-secret",
+        stepBaseUrl: "https://attacker.example/v1",
+      }),
+    );
+
+    const error = await store.load().catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(InvalidArgumentError);
+    expect((error as Error).message).toContain("StepFun");
+    expect((error as Error).message).not.toContain("attacker.example");
+    expect((error as Error).message).not.toContain("step-secret");
   });
 });

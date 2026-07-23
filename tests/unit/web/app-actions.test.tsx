@@ -255,4 +255,52 @@ describe("App — search flow integration", () => {
       expect(screen.queryByTestId("action-error")).toBeNull();
     });
   });
+
+  it("6. creates a named project without force-overwriting an existing directory", async () => {
+    const project = createMinimalProject();
+    const projectResponse: ProjectApiResponse = { ok: true, project };
+    let createBody: Record<string, unknown> | undefined;
+
+    createFetchMock([
+      () =>
+        errorResponse(404, {
+          ok: false,
+          error: { code: "not_found", message: "No active project" },
+        }),
+      (_url, init) => {
+        createBody = JSON.parse(init?.body as string) as Record<string, unknown>;
+        return successResponse(projectResponse);
+      },
+      () => ({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            ok: true,
+            settings: { plannerProvider: "fixture" },
+          }),
+      }),
+      () => successResponse(projectResponse),
+      () => successResponse(projectResponse),
+    ]);
+
+    render(<App />);
+
+    const titleInput = await screen.findByPlaceholderText("项目标题（可选，默认用文件名）");
+    fireEvent.change(titleInput, { target: { value: "Active Recall Notes" } });
+    fireEvent.change(screen.getByPlaceholderText("或在此粘贴口播文稿…"), {
+      target: { value: "A script worth turning into scenes." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "一键生成" }));
+
+    await waitFor(() => {
+      expect(createBody).toBeDefined();
+    });
+    expect(createBody).toMatchObject({
+      title: "Active Recall Notes",
+      force: false,
+    });
+    expect(createBody?.projectName).toMatch(/^active-recall-notes-[a-z0-9]+$/);
+    expect(createBody?.projectName).not.toBe("default");
+  });
 });

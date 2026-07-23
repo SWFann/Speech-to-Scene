@@ -291,14 +291,18 @@ export class ReviewApiClient {
   ): Promise<ReviewProjectView> {
     const body: Record<string, unknown> = { prompt: input.prompt };
     if (input.aspectRatio !== undefined) body.aspectRatio = input.aspectRatio;
-    return this.projectMutation(`/api/scenes/${encodeURIComponent(sceneId)}/generate`, "POST", body);
+    return this.projectMutation(
+      `/api/scenes/${encodeURIComponent(sceneId)}/generate`,
+      "POST",
+      body,
+    );
   }
 
   // ---- F1: one-click project lifecycle + settings ----
 
   /**
    * POST /api/project/create — create project from uploaded text content.
-   * Phase 3: accepts optional projectName.
+   * Requires an explicit projectName and never force-overwrites.
    */
   async createProject(input: {
     content: string;
@@ -309,8 +313,8 @@ export class ReviewApiClient {
     style?: "knowledge" | "story" | "commentary";
     intendedUse?: "commercial_capable" | "noncommercial" | "editorial";
     willModify?: boolean;
-    force?: boolean;
-    projectName?: string;
+    force: false;
+    projectName: string;
   }): Promise<ReviewProjectView> {
     const body: Record<string, unknown> = { content: input.content };
     if (input.fileName !== undefined) body.fileName = input.fileName;
@@ -320,8 +324,8 @@ export class ReviewApiClient {
     if (input.style !== undefined) body.style = input.style;
     if (input.intendedUse !== undefined) body.intendedUse = input.intendedUse;
     if (input.willModify !== undefined) body.willModify = input.willModify;
-    if (input.force !== undefined) body.force = input.force;
-    if (input.projectName !== undefined) body.projectName = input.projectName;
+    body.force = input.force;
+    body.projectName = input.projectName;
     return this.projectMutation("/api/project/create", "POST", body);
   }
 
@@ -364,10 +368,13 @@ export class ReviewApiClient {
   }
 
   /**
-   * DELETE /api/project — delete current active project (Phase 3).
+   * DELETE /api/project — delete an explicitly named project.
    */
-  async deleteProject(confirm: string): Promise<void> {
-    await this.jsonMutation<DeleteProjectApiResponse>("/api/project", "DELETE", { confirm });
+  async deleteProject(projectName: string): Promise<void> {
+    await this.jsonMutation<DeleteProjectApiResponse>("/api/project", "DELETE", {
+      projectName,
+      confirm: projectName,
+    });
   }
 
   /**

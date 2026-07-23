@@ -18,6 +18,7 @@
 
 import type { ProjectRepository } from "./ports/project-repository.js";
 import { ProjectNotFoundError, InvalidArgumentError } from "../shared/errors.js";
+import { isValidProjectName } from "./project-name.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,33 +36,6 @@ export interface SwitchProjectResult {
   readonly projectRoot: string;
   /** The project directory name (echoed back from input). */
   readonly project: string;
-}
-
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validates a project directory name.
- *
- * Rejects:
- * - Empty or whitespace-only
- * - Path separators (`/` or `\`)
- * - Traversal segments (`..` or `.`)
- * - Hidden-dot prefix (`.s2s`, `.git`, etc.)
- * - Windows device names (handled by path safety utilities elsewhere)
- *
- * @returns true if the name is safe.
- */
-function isValidProjectName(name: string): boolean {
-  if (!name || name.trim().length === 0) return false;
-  if (name.includes("/") || name.includes("\\")) return false;
-  if (name === "." || name === "..") return false;
-  if (name.startsWith(".")) return false;
-  // Reject NUL bytes and control characters
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f]/.test(name)) return false;
-  return true;
 }
 
 // ---------------------------------------------------------------------------

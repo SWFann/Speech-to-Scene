@@ -16,6 +16,7 @@
  */
 
 import { z } from "zod";
+import path from "node:path";
 
 import type { RouteDefinition } from "./review-types.js";
 import type { ReviewServerDependencies } from "./review-types.js";
@@ -25,6 +26,8 @@ import { parseJsonBody } from "./json-body.js";
 import type { ServerResponse } from "node:http";
 import { ERROR_INVALID_REQUEST } from "./http-errors.js";
 import { IdSchema } from "../domain/schema-primitives.js";
+import { isValidProjectName } from "../application/project-name.js";
+import { isOfficialProviderBaseUrl } from "../shared/provider-base-url.js";
 
 // ---------------------------------------------------------------------------
 // Request body schemas
@@ -43,13 +46,7 @@ const PutQueriesBodySchema = z.strictObject({
 /**
  * Known asset provider names accepted by search endpoints.
  */
-const KNOWN_SEARCH_PROVIDERS = [
-  "fixture",
-  "pexels",
-  "pixabay",
-  "unsplash",
-  "openverse",
-] as const;
+const KNOWN_SEARCH_PROVIDERS = ["fixture", "pexels", "pixabay", "unsplash", "openverse"] as const;
 
 /**
  * Strict schema for POST /api/scenes/:sceneId/search body.
@@ -113,13 +110,13 @@ const SaveSettingsBodySchema = z.strictObject({
   deepseekApiKey: z.string().min(1).optional(),
   deepseekBaseUrl: z
     .string()
-    .regex(/^https:\/\/api\.deepseek\.com\/?$/)
+    .refine((value) => isOfficialProviderBaseUrl("deepseek", value))
     .optional(),
   deepseekModel: z.string().min(1).optional(),
   stepApiKey: z.string().min(1).optional(),
   stepBaseUrl: z
     .string()
-    .regex(/^https:\/\/api\.stepfun\.com\/v1\/?$/)
+    .refine((value) => isOfficialProviderBaseUrl("stepfun", value))
     .optional(),
   stepModel: z.string().min(1).optional(),
   stepImageModel: z.string().min(1).optional(),
@@ -131,20 +128,6 @@ const SaveSettingsBodySchema = z.strictObject({
   openverseApiKey: z.string().min(1).optional(),
 });
 
-/**
- * Validates a project name for switch/create operations.
- * Rejects path traversal, hidden dirs, and special chars.
- */
-function isValidProjectName(name: string): boolean {
-  if (!name || name.trim().length === 0) return false;
-  if (name.includes("/") || name.includes("\\")) return false;
-  if (name === "." || name === "..") return false;
-  if (name.startsWith(".")) return false;
-  // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f]/.test(name)) return false;
-  return true;
-}
-
 /** Body schema for POST /api/project/create. */
 const CreateProjectBodySchema = z.strictObject({
   content: z.string().min(1),
@@ -155,9 +138,9 @@ const CreateProjectBodySchema = z.strictObject({
   style: z.enum(["knowledge", "story", "commentary"]).optional(),
   intendedUse: z.enum(["commercial_capable", "noncommercial", "editorial"]).optional(),
   willModify: z.boolean().optional(),
-  force: z.boolean().optional().default(false),
-  /** Phase 3: project name within the workspace (defaults to "default"). */
-  projectName: z.string().min(1).optional(),
+  force: z.literal(false).optional().default(false),
+  /** Project name within the workspace. No implicit "default" target. */
+  projectName: z.string().min(1),
 });
 
 /** Body schema for POST /api/project/plan. */
@@ -187,6 +170,7 @@ const SwitchProjectBodySchema = z.strictObject({
 
 /** Body schema for DELETE /api/project (Phase 3). */
 const DeleteProjectBodySchema = z.strictObject({
+  projectName: z.string().min(1),
   confirm: z.string().min(1),
 });
 
@@ -250,7 +234,13 @@ export function createRoutes(config: {
     const requireProjectRoot = (res: ServerResponse): string | null => {
       const root = config.projectRootRef.current;
       if (!root) {
-        sendError(res, 404, "not_found", "No active project", "Create or switch to a project first");
+        sendError(
+          res,
+          404,
+          "not_found",
+          "No active project",
+          "Create or switch to a project first",
+        );
         return null;
       }
       return root;
@@ -265,7 +255,7 @@ export function createRoutes(config: {
           try {
             const result = await listProjects(config.workspaceRoot);
             const activeProjectName = config.projectRootRef.current
-              ? config.projectRootRef.current.split("/").pop() ?? null
+              ? path.basename(config.projectRootRef.current)
               : null;
             sendSuccess(res, 200, {
               projects: result.projects.map((p) => ({
@@ -308,9 +298,8 @@ export function createRoutes(config: {
               workspaceRoot: config.workspaceRoot,
               project: parsed.data.project,
             });
-            // Update the mutable project root ref
-            config.projectRootRef.current = result.projectRoot;
             const project = await getReviewProject(result.projectRoot, repository);
+            config.projectRootRef.current = result.projectRoot;
             sendSuccess(res, 200, { project });
           } catch (error) {
             mapMutationError(error, res);
@@ -325,11 +314,6 @@ export function createRoutes(config: {
         path: "/api/project",
         methods: ["DELETE"],
         handler: async (req, res) => {
-          const currentRoot = config.projectRootRef.current;
-          if (!currentRoot) {
-            sendError(res, 404, "not_found", "No active project to delete");
-            return;
-          }
           const bodyResult = await parseJsonBody(req, res);
           if (!bodyResult.success) {
             sendError(
@@ -347,12 +331,16 @@ export function createRoutes(config: {
             return;
           }
           try {
-            await deleteProject({
-              projectRoot: currentRoot,
+            const result = await deleteProject({
+              workspaceRoot: config.workspaceRoot,
+              projectName: parsed.data.projectName,
               confirm: parsed.data.confirm,
             });
-            // Clear the active project
-            config.projectRootRef.current = null;
+            const currentRoot = config.projectRootRef.current;
+            const deletedRoot = path.resolve(config.workspaceRoot, result.deleted);
+            if (currentRoot !== null && path.resolve(currentRoot) === deletedRoot) {
+              config.projectRootRef.current = null;
+            }
             sendSuccess(res, 200, { ok: true });
           } catch (error) {
             mapMutationError(error, res);
@@ -431,8 +419,8 @@ export function createRoutes(config: {
             sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid project create body");
             return;
           }
-          // Phase 3: derive projectDirectory from workspaceRoot + projectName
-          const projectName = parsed.data.projectName ?? "default";
+          // Derive projectDirectory from workspaceRoot + required projectName.
+          const projectName = parsed.data.projectName;
           if (!isValidProjectName(projectName)) {
             sendError(res, 400, ERROR_INVALID_REQUEST, "Invalid project name");
             return;
@@ -451,9 +439,8 @@ export function createRoutes(config: {
               willModify: parsed.data.willModify ?? true,
               force: parsed.data.force,
             });
-            // Phase 3: set the new project as active
-            config.projectRootRef.current = projectDirectory;
             const project = await getReviewProject(projectDirectory, repository);
+            config.projectRootRef.current = projectDirectory;
             sendSuccess(res, 200, { project });
           } catch (error) {
             mapMutationError(error, res);
@@ -528,9 +515,7 @@ export function createRoutes(config: {
           try {
             await searchProjectAssets({
               projectRoot,
-              ...(parsed.data.providers !== undefined
-                ? { providers: parsed.data.providers }
-                : {}),
+              ...(parsed.data.providers !== undefined ? { providers: parsed.data.providers } : {}),
               maxAssetsPerQuery: parsed.data.limit,
               refresh: parsed.data.refresh,
             });
@@ -859,7 +844,7 @@ function mapMutationError(error: unknown, res: ServerResponse): void {
 
   // ProjectAlreadyExistsError → 409 conflict (create with force=false)
   if (code === "project_already_exists") {
-    sendError(res, 409, "conflict", "Project already exists", "Retry with force=true to overwrite");
+    sendError(res, 409, "conflict", "Project already exists", "Choose a different project name");
     return;
   }
 

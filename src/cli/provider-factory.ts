@@ -19,10 +19,32 @@ import type { ImageGenerator } from "../application/ports/image-generator.js";
 import type { Settings } from "../application/ports/settings-store.js";
 import { readPlannerEnv, readAssetProviderEnv } from "../infrastructure/env.js";
 import { ProjectNotPlannedError, InvalidArgumentError } from "../shared/errors.js";
+import {
+  normalizeOfficialProviderBaseUrl,
+  type OfficialProvider,
+} from "../shared/provider-base-url.js";
 
 // ---------------------------------------------------------------------------
 // Provider factory
 // ---------------------------------------------------------------------------
+
+function resolveOfficialBaseUrl(
+  provider: OfficialProvider,
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = normalizeOfficialProviderBaseUrl(provider, value);
+  if (normalized === null) {
+    const label = provider === "stepfun" ? "StepFun" : "DeepSeek";
+    throw new InvalidArgumentError(
+      `Unsafe ${label} base URL`,
+      `请在设置页配置官方 ${label} HTTPS API 地址`,
+    );
+  }
+  return normalized;
+}
 
 /**
  * Creates an asset provider by name.
@@ -85,7 +107,8 @@ export async function createSearchProvider(
           "Pixabay API key is required. Set PIXABAY_API_KEY environment variable.",
         );
       }
-      const { PixabayAssetProvider } = await import("../providers/pixabay/pixabay-asset-provider.js");
+      const { PixabayAssetProvider } =
+        await import("../providers/pixabay/pixabay-asset-provider.js");
       const provider = new PixabayAssetProvider({
         apiKey: env.pixabayApiKey,
         ...(httpClient ? { httpClient } : {}),
@@ -103,7 +126,8 @@ export async function createSearchProvider(
           "Unsplash API key is required. Set UNSPLASH_API_KEY environment variable.",
         );
       }
-      const { UnsplashAssetProvider } = await import("../providers/unsplash/unsplash-asset-provider.js");
+      const { UnsplashAssetProvider } =
+        await import("../providers/unsplash/unsplash-asset-provider.js");
       const provider = new UnsplashAssetProvider({
         apiKey: env.unsplashApiKey,
         ...(httpClient ? { httpClient } : {}),
@@ -116,7 +140,8 @@ export async function createSearchProvider(
       };
     }
     case "openverse": {
-      const { OpenverseAssetProvider } = await import("../providers/openverse/openverse-asset-provider.js");
+      const { OpenverseAssetProvider } =
+        await import("../providers/openverse/openverse-asset-provider.js");
       const provider = new OpenverseAssetProvider({});
       return {
         providerId: provider.providerId,
@@ -157,7 +182,10 @@ export function getSearchCacheDir(projectRoot: string, providerName: string): st
  * @param name - Planner provider name: "fixture", "deepseek", or "stepfun".
  * @param settings - Loaded settings (settings.json). Keys take priority over .env.
  */
-export async function createPlannerProvider(name: string, settings: Settings): Promise<ScriptPlanner> {
+export async function createPlannerProvider(
+  name: string,
+  settings: Settings,
+): Promise<ScriptPlanner> {
   const env = readPlannerEnv();
   switch (name) {
     case "fixture": {
@@ -174,12 +202,12 @@ export async function createPlannerProvider(name: string, settings: Settings): P
         );
       }
       if (!model) {
-        throw new InvalidArgumentError(
-          "DeepSeek model is required",
-          "在设置页配置 DeepSeek 模型",
-        );
+        throw new InvalidArgumentError("DeepSeek model is required", "在设置页配置 DeepSeek 模型");
       }
-      const baseUrl = settings.deepseekBaseUrl ?? env.deepseekBaseUrl;
+      const baseUrl = resolveOfficialBaseUrl(
+        "deepseek",
+        settings.deepseekBaseUrl ?? env.deepseekBaseUrl,
+      );
       const { DeepSeekScriptPlanner } = await import("../planner/deepseek-script-planner.js");
       return new DeepSeekScriptPlanner({
         apiKey,
@@ -196,7 +224,7 @@ export async function createPlannerProvider(name: string, settings: Settings): P
         );
       }
       const model = settings.stepModel ?? env.stepModel;
-      const baseUrl = settings.stepBaseUrl ?? env.stepBaseUrl;
+      const baseUrl = resolveOfficialBaseUrl("stepfun", settings.stepBaseUrl ?? env.stepBaseUrl);
       const { StepFunScriptPlanner } = await import("../planner/stepfun-script-planner.js");
       return new StepFunScriptPlanner({
         apiKey,
@@ -282,10 +310,9 @@ export async function createImageGenerator(
         );
       }
       const model = settings.stepImageModel ?? "step-image-edit-2";
-      const baseUrl = settings.stepBaseUrl ?? env.stepBaseUrl;
-      const { StepFunImageGenerator } = await import(
-        "../providers/stepfun/stepfun-image-generator.js"
-      );
+      const baseUrl = resolveOfficialBaseUrl("stepfun", settings.stepBaseUrl ?? env.stepBaseUrl);
+      const { StepFunImageGenerator } =
+        await import("../providers/stepfun/stepfun-image-generator.js");
       return new StepFunImageGenerator({
         apiKey,
         model,

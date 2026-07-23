@@ -1,16 +1,46 @@
-import { mkdtemp } from "node:fs/promises";
+import fs, { mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createProjectFromContent } from "../../src/application/create-project-from-content.js";
+import {
+  createProjectFromContent,
+  type CreateProjectFromContentInput,
+} from "../../src/application/create-project-from-content.js";
 import { SystemClock, SystemIdGenerator } from "../../src/infrastructure/system-adapters.js";
 import { JsonProjectRepository } from "../../src/infrastructure/json-project-repository.js";
 import { FileSystemProjectScaffolder } from "../../src/infrastructure/project-scaffolder.js";
+import { ProjectAlreadyExistsError } from "../../src/shared/errors.js";
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+});
+
+async function makeTempDir(prefix: string): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function validInput(projectDirectory: string): CreateProjectFromContentInput {
+  return {
+    projectDirectory,
+    content: new TextEncoder().encode("# 标题\n\n这是一段口播稿。"),
+    originalFileName: "script.md",
+    title: "",
+    language: "zh-CN" as const,
+    aspectRatio: "9:16" as const,
+    style: "knowledge" as const,
+    intendedUse: "commercial_capable" as const,
+    willModify: true,
+  };
+}
 
 describe("createProjectFromContent", () => {
   it("creates a project from text bytes without a file path", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "s2s-content-"));
+    const dir = await makeTempDir("s2s-content-");
     const projectDir = path.join(dir, "myproj");
     const content = "# 标题\n\n这是一段口播稿。";
 
@@ -40,7 +70,7 @@ describe("createProjectFromContent", () => {
   });
 
   it("rejects empty content", async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), "s2s-empty-"));
+    const dir = await makeTempDir("s2s-empty-");
     await expect(
       createProjectFromContent(
         {
@@ -60,5 +90,39 @@ describe("createProjectFromContent", () => {
         new FileSystemProjectScaffolder(),
       ),
     ).rejects.toThrow();
+  });
+
+  it("rejects a pre-existing non-project directory before writing and preserves its contents", async () => {
+    const dir = await makeTempDir("s2s-existing-content-");
+    const projectDir = path.join(dir, "occupied");
+    const preservedFile = path.join(projectDir, "important.txt");
+    await fs.mkdir(projectDir);
+    await fs.writeFile(preservedFile, "do not delete");
+
+    await expect(
+      createProjectFromContent(
+        validInput(projectDir),
+        new SystemClock(),
+        new SystemIdGenerator(),
+        new JsonProjectRepository(),
+        new FileSystemProjectScaffolder(),
+      ),
+    ).rejects.toThrow(ProjectAlreadyExistsError);
+
+    await expect(fs.readFile(preservedFile, "utf-8")).resolves.toBe("do not delete");
+    await expect(fs.readdir(projectDir)).resolves.toEqual(["important.txt"]);
+  });
+
+  it("creates the project root exclusively so a concurrent directory is never reused", async () => {
+    const dir = await makeTempDir("s2s-exclusive-root-");
+    const projectDir = path.join(dir, "occupied");
+    const preservedFile = path.join(projectDir, "concurrent.txt");
+    await fs.mkdir(projectDir);
+    await fs.writeFile(preservedFile, "must survive");
+
+    await expect(new FileSystemProjectScaffolder().createRoot(projectDir)).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+    await expect(fs.readFile(preservedFile, "utf-8")).resolves.toBe("must survive");
   });
 });

@@ -2,14 +2,39 @@ import { useState } from "react";
 import { FileText, Sparkles } from "lucide-react";
 
 interface LandingViewProps {
-  onCreate: (input: { content: string; fileName?: string; title?: string }) => void;
+  onCreate: (input: {
+    content: string;
+    projectName: string;
+    fileName?: string;
+    title?: string;
+  }) => void;
   busy: boolean;
   /** Current one-click flow step label, or null when idle. */
   flowStep: string | null;
   error: { message: string; hint?: string } | null;
 }
 
-export function LandingView({ onCreate, busy, flowStep, error }: LandingViewProps): React.ReactElement {
+export function deriveProjectName(title: string, fileName: string): string {
+  const fileStem = fileName.replace(/\.[^.]+$/, "");
+  const source = title.trim() || fileStem.trim() || "project";
+  const slug = source
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}_-]+/gu, "-")
+    .replace(/^-+|-+$/g, "");
+  const safePrefix = Array.from(slug || "project")
+    .slice(0, 48)
+    .join("");
+  const uniqueSuffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return `${safePrefix}-${uniqueSuffix}`;
+}
+
+export function LandingView({
+  onCreate,
+  busy,
+  flowStep,
+  error,
+}: LandingViewProps): React.ReactElement {
   const [content, setContent] = useState("");
   const [fileName, setFileName] = useState("script.md");
   const [title, setTitle] = useState("");
@@ -73,7 +98,14 @@ export function LandingView({ onCreate, busy, flowStep, error }: LandingViewProp
           className="btn primary"
           type="button"
           disabled={!canSubmit}
-          onClick={() => void onCreate({ content, fileName, title })}
+          onClick={() =>
+            void onCreate({
+              content,
+              fileName,
+              title,
+              projectName: deriveProjectName(title, fileName),
+            })
+          }
         >
           {busy ? "生成中…" : "一键生成"}
         </button>

@@ -1,32 +1,35 @@
 /**
  * deleteProject use case.
  *
- * Deletes the current active project directory entirely after verifying a
- * confirmation string matches the project directory name. This is a
+ * Deletes a named workspace project after verifying a confirmation string
+ * matches the project directory name. This is a
  * destructive, irreversible operation — the two-step confirmation
  * (project name match) prevents accidental deletion.
  *
  * Phase 3: multi-project workspace support.
  *
  * Design rules:
- * 1. The `confirm` string must exactly match the project directory name
- *    (basename of `projectRoot`).
+ * 1. The target is resolved from `workspaceRoot` + validated `projectName`.
+ * 2. The `confirm` string must exactly match `projectName`.
  * 2. Deletion is delegated to WorkspaceScanner.deleteProject (infrastructure).
  * 3. The `workspace/.s2s/` settings directory is never touched.
- * 4. After deletion, the caller (server) sets the active project to null.
+ * 4. The caller clears active state only when the deleted target was active.
  */
 
 import type { WorkspaceScanner } from "./ports/workspace-scanner.js";
 import { InvalidArgumentError, ProjectNotFoundError } from "../shared/errors.js";
 import path from "node:path";
+import { isValidProjectName } from "./project-name.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface DeleteProjectInput {
-  /** Absolute path to the project root to delete. */
-  readonly projectRoot: string;
+  /** Absolute path to the workspace containing all named projects. */
+  readonly workspaceRoot: string;
+  /** Direct child directory name of the project to delete. */
+  readonly projectName: string;
   /** Confirmation string — must match the project directory basename. */
   readonly confirm: string;
 }
@@ -54,23 +57,29 @@ export async function deleteProject(
   input: DeleteProjectInput,
   scanner: WorkspaceScanner,
 ): Promise<DeleteProjectResult> {
-  const projectRoot = path.resolve(input.projectRoot);
-  const projectDirName = projectRoot.split("/").pop() ?? "";
-
-  if (!projectDirName) {
-    throw new InvalidArgumentError(
-      "Cannot determine project directory name",
-      "项目根路径无效",
-    );
+  const workspaceRoot = path.resolve(input.workspaceRoot);
+  const projectName = input.projectName?.trim() ?? "";
+  if (!isValidProjectName(projectName)) {
+    throw new InvalidArgumentError("Invalid project name", "项目名不能包含路径分隔符或以点开头");
+  }
+  const projectRoot = path.resolve(workspaceRoot, projectName);
+  if (path.dirname(projectRoot) !== workspaceRoot) {
+    throw new InvalidArgumentError("Project is outside workspace", "项目路径超出工作区");
   }
 
   const confirm = input.confirm?.trim() ?? "";
 
-  if (confirm !== projectDirName) {
+  if (confirm !== projectName) {
     throw new InvalidArgumentError(
-      `Confirmation does not match project name: expected "${projectDirName}"`,
-      `请输入项目名 "${projectDirName}" 以确认删除`,
+      `Confirmation does not match project name: expected "${projectName}"`,
+      `请输入项目名 "${projectName}" 以确认删除`,
     );
+  }
+
+  const entries = await scanner.scanProjectDirs(workspaceRoot);
+  const target = entries.find((entry) => entry.name === projectName);
+  if (!target?.hasProject) {
+    throw new ProjectNotFoundError(projectRoot);
   }
 
   try {
@@ -84,5 +93,5 @@ export async function deleteProject(
     throw error;
   }
 
-  return { ok: true, deleted: projectDirName };
+  return { ok: true, deleted: projectName };
 }

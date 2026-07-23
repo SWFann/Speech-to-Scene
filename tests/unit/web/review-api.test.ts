@@ -434,4 +434,21 @@ describe("ReviewApiClient — searchScene mutation", () => {
       expect(apiErr.statusCode).toBe(403);
     }
   });
+
+  it("17. deleteProject sends an explicit projectName and matching confirmation", async () => {
+    mockFetchSuccess();
+    const client = new ReviewApiClient({
+      baseUrl: "http://127.0.0.1:3210",
+    });
+
+    await client.deleteProject("demo-project");
+
+    expect(fetch).toHaveBeenCalledOnce();
+    const [, init] = vi.mocked(fetch).mock.calls[0]!;
+    expect(init?.method).toBe("DELETE");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      projectName: "demo-project",
+      confirm: "demo-project",
+    });
+  });
 });

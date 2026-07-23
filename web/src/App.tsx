@@ -42,10 +42,7 @@ export function App(): React.ReactElement {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectListError, setProjectListError] = useState<ActionErrorInfo | null>(null);
 
-  const client = useMemo<ReviewApiClient>(
-    () => createClientFromEnv(),
-    [],
-  );
+  const client = useMemo<ReviewApiClient>(() => createClientFromEnv(), []);
 
   // --- Load project list (Phase 3) ---
   const loadProjects = useCallback(async () => {
@@ -112,20 +109,14 @@ export function App(): React.ReactElement {
     }
   }, [state, activeSceneId]);
 
-  const handleSelectScene = useCallback(
-    (sceneId: string) => {
-      setActiveSceneId(sceneId);
-      setActionError(null);
-    },
-    [],
-  );
+  const handleSelectScene = useCallback((sceneId: string) => {
+    setActiveSceneId(sceneId);
+    setActionError(null);
+  }, []);
 
-  const syncFromProject = useCallback(
-    (project: ReviewProjectView) => {
-      setState({ kind: "success", project });
-    },
-    [],
-  );
+  const syncFromProject = useCallback((project: ReviewProjectView) => {
+    setState({ kind: "success", project });
+  }, []);
 
   const handleSearchScene = useCallback(async () => {
     if (!activeSceneId) return;
@@ -162,27 +153,29 @@ export function App(): React.ReactElement {
   );
 
   const handleCreate = useCallback(
-    async (input: { content: string; fileName?: string; title?: string }) => {
+    async (input: { content: string; projectName: string; fileName?: string; title?: string }) => {
       setActionError(null);
       setBusyAction("search");
       setFlowStep("创建项目中…");
       try {
         const createInput: {
           content: string;
-          force: boolean;
+          projectName: string;
+          force: false;
           fileName?: string;
           title?: string;
-        } = { content: input.content, force: true };
+        } = {
+          content: input.content,
+          projectName: input.projectName,
+          force: false,
+        };
         if (input.fileName !== undefined) createInput.fileName = input.fileName;
         if (input.title !== undefined) createInput.title = input.title;
         await client.createProject(createInput);
         let plannerProvider: "fixture" | "deepseek" | "stepfun" = "fixture";
         try {
           const settings = await client.getSettings();
-          if (
-            settings.plannerProvider === "deepseek" ||
-            settings.plannerProvider === "stepfun"
-          ) {
+          if (settings.plannerProvider === "deepseek" || settings.plannerProvider === "stepfun") {
             plannerProvider = settings.plannerProvider;
           }
         } catch {
@@ -305,9 +298,7 @@ export function App(): React.ReactElement {
             error={actionError}
           />
         </main>
-        {showSettings && (
-          <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
-        )}
+        {showSettings && <SettingsPanel client={client} onClose={() => setShowSettings(false)} />}
       </>
     );
   }
@@ -340,9 +331,7 @@ export function App(): React.ReactElement {
         error={null}
         onSettings={() => setShowSettings(true)}
         onReset={() => {
-          if (
-            window.confirm("重新上传文稿会覆盖当前项目，确定继续？")
-          ) {
+          if (window.confirm("重新上传文稿会覆盖当前项目，确定继续？")) {
             setShowLanding(true);
           }
         }}
@@ -368,9 +357,7 @@ export function App(): React.ReactElement {
           />
         )}
       </section>
-      {showSettings && (
-        <SettingsPanel client={client} onClose={() => setShowSettings(false)} />
-      )}
+      {showSettings && <SettingsPanel client={client} onClose={() => setShowSettings(false)} />}
     </main>
   );
 }

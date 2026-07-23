@@ -24,13 +24,12 @@ export class FileSystemProjectScaffolder implements ProjectScaffolder {
   /**
    * Create the project root directory.
    *
-   * Uses `mkdir` with `recursive` for robustness (no-clobber is enforced
-   * by the sentinel check in checkExistingProject and the no-clobber
-   * file write in the repository).
+   * Uses exclusive `mkdir` so a directory created after the application
+   * pre-flight check is never reused during failure cleanup.
    */
   async createRoot(projectRoot: string): Promise<void> {
     const resolved = path.resolve(projectRoot);
-    await fs.mkdir(resolved, { recursive: true, mode: 0o755 });
+    await fs.mkdir(resolved, { mode: 0o755 });
   }
 
   /**
