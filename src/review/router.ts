@@ -159,7 +159,7 @@ const SearchProjectBodySchema = z.strictObject({
 
 /** Body schema for POST /api/scenes/:sceneId/generate (Phase 2: AI image generation). */
 const GenerateImageBodySchema = z.strictObject({
-  prompt: z.string().min(1, "prompt 不能为空"),
+  prompt: z.string().trim().min(1, "prompt 不能为空").max(512, "prompt 不能超过 512 个字符"),
   aspectRatio: z.enum(["9:16", "16:9", "1:1"]).optional().default("9:16"),
 });
 

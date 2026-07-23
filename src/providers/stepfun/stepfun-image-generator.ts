@@ -45,21 +45,21 @@ const STEPFUN_IMAGE_SNAPSHOT: AssetProviderSnapshot = {
   termsCheckedAt: "2026-07-18T00:00:00.000Z",
 };
 
-// Aspect ratio → size mapping for step-image-edit-2
+// StepFun's API size value is height x width, not width x height.
 // Supported sizes: 1024x1024, 768x1360, 896x1184, 1360x768, 1184x896
 const ASPECT_SIZE: Record<string, string> = {
-  "9:16": "768x1360",
-  "16:9": "1360x768",
+  "9:16": "1360x768",
+  "16:9": "768x1360",
   "1:1": "1024x1024",
 };
 
-// Size → dimensions mapping for parsing the response
+// API size → conventional width/height dimensions.
 const SIZE_DIMENSIONS: Record<string, { width: number; height: number }> = {
   "1024x1024": { width: 1024, height: 1024 },
-  "768x1360": { width: 768, height: 1360 },
-  "896x1184": { width: 896, height: 1184 },
-  "1360x768": { width: 1360, height: 768 },
-  "1184x896": { width: 1184, height: 896 },
+  "1360x768": { width: 768, height: 1360 },
+  "1184x896": { width: 896, height: 1184 },
+  "768x1360": { width: 1360, height: 768 },
+  "896x1184": { width: 1184, height: 896 },
 };
 
 // ---------------------------------------------------------------------------
@@ -93,10 +93,7 @@ export class StepFunImageGenerator implements ImageGenerator {
 
   constructor(options: StepFunImageGeneratorOptions) {
     if (!options.apiKey || options.apiKey.trim() === "") {
-      throw new InvalidArgumentError(
-        "StepFun API key is required",
-        "在设置页配置 StepFun API Key",
-      );
+      throw new InvalidArgumentError("StepFun API key is required", "在设置页配置 StepFun API Key");
     }
 
     this.model = options.model ?? DEFAULT_STEPFUN_IMAGE_MODEL;
@@ -116,6 +113,7 @@ export class StepFunImageGenerator implements ImageGenerator {
     const response = await this.client.post<{
       data: Array<{ url?: string; b64_json?: string }>;
       model?: string;
+      finish_reason?: string;
     }>("/images/generations", {
       model,
       prompt: input.prompt,
@@ -132,21 +130,22 @@ export class StepFunImageGenerator implements ImageGenerator {
       );
     }
 
+    if (response.data.finish_reason !== undefined && response.data.finish_reason !== "success") {
+      throw new InvalidArgumentError(
+        `StepFun image generation stopped by content filtering: ${response.data.finish_reason}`,
+        "图片未生成，可能触发了内容过滤，请调整描述后重试",
+      );
+    }
+
     const imageData = response.data.data?.[0];
     if (!imageData) {
-      throw new InvalidArgumentError(
-        "StepFun returned no image data",
-        "API 返回了空响应，请重试",
-      );
+      throw new InvalidArgumentError("StepFun returned no image data", "API 返回了空响应，请重试");
     }
 
     // StepFun may return either a URL or base64-encoded image
     const imageUrl = imageData.url;
     if (!imageUrl || typeof imageUrl !== "string") {
-      throw new InvalidArgumentError(
-        "StepFun returned no image URL",
-        "API 返回了无效的响应格式",
-      );
+      throw new InvalidArgumentError("StepFun returned no image URL", "API 返回了无效的响应格式");
     }
 
     const dims = SIZE_DIMENSIONS[size] ?? { width: 1024, height: 1024 };

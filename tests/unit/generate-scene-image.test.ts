@@ -29,7 +29,10 @@ import {
   type GenerateSceneImageDeps,
 } from "../../src/application/generate-scene-image.js";
 import type { ProjectRepository } from "../../src/application/ports/project-repository.js";
-import type { ImageGenerator, ImageGenerateResult } from "../../src/application/ports/image-generator.js";
+import type {
+  ImageGenerator,
+  ImageGenerateResult,
+} from "../../src/application/ports/image-generator.js";
 import type { GeneratedImageDownloader } from "../../src/application/ports/generated-image-downloader.js";
 import type { SpeechToSceneProject } from "../../src/domain/project-schema.js";
 import { SpeechToSceneProjectSchema } from "../../src/domain/project-schema.js";
@@ -224,19 +227,22 @@ class FakeImageGenerator implements ImageGenerator {
 // ---------------------------------------------------------------------------
 
 describe("buildGenerationPrompt", () => {
-  it("1. combines summary with first 3 visual keywords", () => {
+  it("1. builds a production-ready portrait prompt from scene context", () => {
     const project = makeTestProject();
     const scene = project.scenes[0]!;
     const prompt = buildGenerationPrompt(scene);
-    // summary + first 3 keywords joined by Chinese comma
-    expect(prompt).toBe("A city skyline at sunset，city，sunset，skyline");
+    expect(prompt).toContain("A city skyline at sunset");
+    expect(prompt).toContain("city, sunset, skyline");
+    expect(prompt).toContain("9:16");
+    expect(prompt).toContain("No text");
+    expect(prompt.length).toBeLessThanOrEqual(512);
   });
 
   it("2. works with fewer than 3 keywords", () => {
     const project = makeTestProject();
     const scene = project.scenes[1]!; // has 2 keywords
     const prompt = buildGenerationPrompt(scene);
-    expect(prompt).toBe("A person working at a desk，person，desk");
+    expect(prompt).toContain("person, desk");
   });
 
   it("3. works with no keywords", () => {
@@ -247,7 +253,18 @@ describe("buildGenerationPrompt", () => {
       visualPlan: { ...scene.visualPlan, visualKeywords: [] },
     };
     const prompt = buildGenerationPrompt(modified);
-    expect(prompt).toBe("A person working at a desk");
+    expect(prompt).toContain("A person working at a desk");
+    expect(prompt).not.toContain("undefined");
+  });
+
+  it("limits generated prompts to the StepFun prompt boundary", () => {
+    const scene = makeTestProject().scenes[0]!;
+    const verbose = {
+      ...scene,
+      summary: "A".repeat(800),
+      visualPlan: { ...scene.visualPlan, visualKeywords: ["B".repeat(300)] },
+    };
+    expect(buildGenerationPrompt(verbose)).toHaveLength(512);
   });
 });
 
@@ -420,7 +437,9 @@ describe("generateSceneImage", () => {
 
   it("10. other scenes are not modified", async () => {
     const project = makeTestProject();
-    const originalScene2 = JSON.parse(JSON.stringify(project.scenes[1])) as SpeechToSceneProject["scenes"][number];
+    const originalScene2 = JSON.parse(
+      JSON.stringify(project.scenes[1]),
+    ) as SpeechToSceneProject["scenes"][number];
     const { deps } = makeDeps(project);
 
     const result = await generateSceneImage(
@@ -457,7 +476,11 @@ describe("generateSceneImage", () => {
   it("12. unplanned project throws ProjectNotPlannedError", async () => {
     const project = makeTestProject();
     // Remove generation to simulate unplanned project
-    const unplanned = { ...project, generation: null, scenes: [] } as unknown as SpeechToSceneProject;
+    const unplanned = {
+      ...project,
+      generation: null,
+      scenes: [],
+    } as unknown as SpeechToSceneProject;
     const { deps } = makeDeps(unplanned);
 
     await expect(

@@ -27,7 +27,12 @@ import { InvalidArgumentError } from "../../src/shared/errors.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function okResponse(data: unknown): { ok: boolean; status: number; data: unknown; headers: Headers } {
+function okResponse(data: unknown): {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  headers: Headers;
+} {
   return {
     ok: true,
     status: 200,
@@ -36,7 +41,10 @@ function okResponse(data: unknown): { ok: boolean; status: number; data: unknown
   };
 }
 
-function errorResponse(status: number, data: unknown): { ok: boolean; status: number; data: unknown; headers: Headers } {
+function errorResponse(
+  status: number,
+  data: unknown,
+): { ok: boolean; status: number; data: unknown; headers: Headers } {
   return {
     ok: false,
     status,
@@ -94,17 +102,33 @@ describe("StepFunImageGenerator", () => {
       client,
     });
 
-    // 9:16 → 768x1360 (step-image-edit-2 supported size)
+    // StepFun size uses height x width, so portrait 9:16 → 1360x768.
     await generator.generate({ prompt: "test", aspectRatio: "9:16" });
-    expect(client.recordedRequests[0]!.body).toMatchObject({ size: "768x1360", n: 1 });
+    expect(client.recordedRequests[0]!.body).toMatchObject({ size: "1360x768", n: 1 });
 
-    // 16:9 → 1360x768
+    // Landscape 16:9 → height x width = 768x1360.
     await generator.generate({ prompt: "test", aspectRatio: "16:9" });
-    expect(client.recordedRequests[1]!.body).toMatchObject({ size: "1360x768" });
+    expect(client.recordedRequests[1]!.body).toMatchObject({ size: "768x1360" });
 
     // 1:1 → 1024x1024
     await generator.generate({ prompt: "test", aspectRatio: "1:1" });
     expect(client.recordedRequests[2]!.body).toMatchObject({ size: "1024x1024" });
+  });
+
+  it("rejects a content-filtered response", async () => {
+    const client = new FakeHttpClient();
+    client.setResponse(
+      okResponse({
+        data: [{ url: "https://example.com/generated.png" }],
+        finish_reason: "content_filtered",
+      }),
+    );
+
+    const generator = new StepFunImageGenerator({ apiKey: "test-key", client });
+
+    await expect(generator.generate({ prompt: "test", aspectRatio: "9:16" })).rejects.toThrow(
+      "content filtering",
+    );
   });
 
   it("4. uses default model when none specified", async () => {
@@ -155,9 +179,9 @@ describe("StepFunImageGenerator", () => {
       client,
     });
 
-    await expect(
-      generator.generate({ prompt: "test", aspectRatio: "1:1" }),
-    ).rejects.toThrow(InvalidArgumentError);
+    await expect(generator.generate({ prompt: "test", aspectRatio: "1:1" })).rejects.toThrow(
+      InvalidArgumentError,
+    );
   });
 
   it("7. missing image data throws InvalidArgumentError", async () => {
@@ -173,9 +197,9 @@ describe("StepFunImageGenerator", () => {
       client,
     });
 
-    await expect(
-      generator.generate({ prompt: "test", aspectRatio: "1:1" }),
-    ).rejects.toThrow(InvalidArgumentError);
+    await expect(generator.generate({ prompt: "test", aspectRatio: "1:1" })).rejects.toThrow(
+      InvalidArgumentError,
+    );
   });
 
   it("8. missing image URL throws InvalidArgumentError", async () => {
@@ -191,9 +215,9 @@ describe("StepFunImageGenerator", () => {
       client,
     });
 
-    await expect(
-      generator.generate({ prompt: "test", aspectRatio: "1:1" }),
-    ).rejects.toThrow(InvalidArgumentError);
+    await expect(generator.generate({ prompt: "test", aspectRatio: "1:1" })).rejects.toThrow(
+      InvalidArgumentError,
+    );
   });
 
   it("9. providerSnapshot has correct provider ID", () => {
