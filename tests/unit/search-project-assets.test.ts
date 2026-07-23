@@ -952,7 +952,7 @@ describe("searchProjectAssets", (): void => {
       const realLinkGen = new DefaultLinkSuggestionGenerator();
       const deps = makeDeps(repository, provider, cache, nowFn, realLinkGen);
 
-      await searchProjectAssets(makeInput(), deps);
+      const result = await searchProjectAssets(makeInput(), deps);
 
       const candidates = project.scenes[0]!.search.candidates as Array<{
         kind: string;
@@ -964,6 +964,7 @@ describe("searchProjectAssets", (): void => {
       const linkCount = candidates.filter((c) => c.kind === "link").length;
       expect(assetCount).toBeGreaterThan(0);
       expect(linkCount).toBeGreaterThan(0);
+      expect(result.totalCandidates).toBe(assetCount);
 
       const lastAssetIndex = Math.max(...candidates.map((c, i) => (c.kind === "asset" ? i : -1)));
       const firstLinkIndex = candidates.findIndex((c) => c.kind === "link");

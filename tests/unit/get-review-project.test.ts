@@ -485,7 +485,7 @@ describe("getReviewProject", () => {
     const view = await getReviewProject(ROOT, repo);
 
     const scene = view.scenes[0]!;
-    expect(scene.search.candidateCount).toBe(2);
+    expect(scene.search.candidateCount).toBe(0);
 
     const cand0 = scene.search.candidates[0]!;
     expect(cand0.kind).toBe("link");
@@ -502,8 +502,7 @@ describe("getReviewProject", () => {
       expect(cand1.searchUrl).toContain("douyin.com");
     }
 
-    // Link candidates still count toward candidates_ready status
-    expect(scene.status).toBe("candidates_ready");
+    expect(scene.status).toBe("pending");
   });
 
   it("preserves provider snapshot fields (asset-kind candidates)", async () => {

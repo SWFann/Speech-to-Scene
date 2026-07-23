@@ -36,6 +36,15 @@ describe("resolveConfiguredProviders", () => {
     expect(resolveConfiguredProviders(makeEnv(), ["fixture"])).toEqual(["fixture"]);
     expect(resolveConfiguredProviders(makeEnv({ pexelsApiKey: "key" }), ["pexels"])).toEqual([
       "pexels",
+      "openverse",
+    ]);
+  });
+
+  it("keeps the keyless fallback and surfaces unavailable requested providers", () => {
+    expect(resolveConfiguredProviders(makeEnv(), ["pexels"])).toEqual(["pexels", "openverse"]);
+    expect(resolveConfiguredProviders(makeEnv(), ["fixture", "pexels"])).toEqual([
+      "pexels",
+      "openverse",
     ]);
   });
 });

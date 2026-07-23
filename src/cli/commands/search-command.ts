@@ -21,14 +21,18 @@ import {
   searchProjectAssets,
   type SearchProjectAssetsInput,
 } from "../../application/search-project-assets.js";
-import { createSearchProvider, getSearchCacheDir } from "../provider-factory.js";
+import {
+  createSearchProvider,
+  getSearchCacheDir,
+  resolveConfiguredProviders,
+} from "../provider-factory.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface SearchCommandOptions {
-  provider: string;
+  provider?: string;
   scene?: string;
   refresh: boolean;
   limit: string;
@@ -111,7 +115,6 @@ export function createSearchCommand(ctx: CommandContext): Command {
     .option(
       "--provider <names>",
       "Asset provider(s), comma-separated (fixture, pexels, pixabay, unsplash, openverse)",
-      "fixture",
     )
     .option("--scene <scene-id>", "Search only a specific scene")
     .option("--refresh", "Ignore cache and re-search")
@@ -121,19 +124,19 @@ export function createSearchCommand(ctx: CommandContext): Command {
     .action(async (projectDirectory: string, options: SearchCommandOptions) => {
       try {
         // Parse comma-separated provider list
-        const providers = options.provider
-          .split(",")
+        const requestedProviders = options.provider
+          ?.split(",")
           .map((p) => p.trim())
           .filter((p) => p.length > 0);
 
-        if (providers.length === 0) {
+        if (options.provider !== undefined && requestedProviders?.length === 0) {
           throw new ProjectNotPlannedError(
             `No provider specified. Valid options: ${KNOWN_PROVIDERS.join(", ")}`,
           );
         }
 
         // Validate each provider name
-        for (const name of providers) {
+        for (const name of requestedProviders ?? []) {
           if (!KNOWN_PROVIDERS.includes(name as (typeof KNOWN_PROVIDERS)[number])) {
             throw new ProjectNotPlannedError(
               `Unknown provider: ${name}. Valid options: ${KNOWN_PROVIDERS.join(", ")}`,
@@ -148,6 +151,7 @@ export function createSearchCommand(ctx: CommandContext): Command {
 
         // Read environment configuration
         const env = readEnv();
+        const providers = resolveConfiguredProviders(env.assetProvider, requestedProviders);
 
         // Perform search using the multi-source aggregation use case
         const searchInput: SearchProjectAssetsInput = {

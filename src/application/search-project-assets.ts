@@ -278,7 +278,7 @@ export async function searchProjectAssets(
       scene.search.lastSearchedAt = retrievedAt;
     }
 
-    totalCandidates += combined.length;
+    totalCandidates += rankedAssets.length;
   }
 
   // Step 6: Update project.updatedAt
@@ -592,11 +592,22 @@ function candidateQualitySignals(
         ? 1
         : 0;
   const hasPreview = candidate.mediaType === "photo" || candidate.previewUrl !== undefined;
+  const rightsConfidence =
+    candidate.rights.status === "public_domain"
+      ? 4
+      : candidate.rights.status === "open_license"
+        ? 3
+        : candidate.rights.status === "platform_license"
+          ? 2
+          : candidate.rights.status === "editorial_only"
+            ? 1
+            : 0;
 
   return [
-    candidate.orientation === targetOrientation ? 1 : 0,
     useMatches ? 1 : 0,
     modificationMatches ? 1 : 0,
+    rightsConfidence,
+    candidate.orientation === targetOrientation ? 1 : 0,
     modificationFreedom,
     hasPreview ? 1 : 0,
     candidate.width * candidate.height,
