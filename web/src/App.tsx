@@ -101,11 +101,10 @@ export function App(): React.ReactElement {
   const [flowStep, setFlowStep] = useState<string | null>(null);
 
   useEffect(() => {
-    if (state.kind === "success" && !activeSceneId) {
-      const firstScene = state.project.scenes[0];
-      if (firstScene) {
-        setActiveSceneId(firstScene.id);
-      }
+    if (state.kind !== "success") return;
+    const sceneStillExists = state.project.scenes.some((scene) => scene.id === activeSceneId);
+    if (!sceneStillExists) {
+      setActiveSceneId(state.project.scenes[0]?.id ?? null);
     }
   }, [state, activeSceneId]);
 
@@ -153,7 +152,14 @@ export function App(): React.ReactElement {
   );
 
   const handleCreate = useCallback(
-    async (input: { content: string; projectName: string; fileName?: string; title?: string }) => {
+    async (input: {
+      content: string;
+      projectName: string;
+      fileName?: string;
+      title?: string;
+      aspectRatio: "9:16" | "16:9" | "1:1";
+      style: "knowledge" | "story" | "commentary";
+    }) => {
       setActionError(null);
       setBusyAction("search");
       setFlowStep("创建项目中…");
@@ -164,22 +170,27 @@ export function App(): React.ReactElement {
           force: false;
           fileName?: string;
           title?: string;
+          aspectRatio: "9:16" | "16:9" | "1:1";
+          style: "knowledge" | "story" | "commentary";
         } = {
           content: input.content,
           projectName: input.projectName,
           force: false,
+          aspectRatio: input.aspectRatio,
+          style: input.style,
         };
         if (input.fileName !== undefined) createInput.fileName = input.fileName;
         if (input.title !== undefined) createInput.title = input.title;
         await client.createProject(createInput);
-        let plannerProvider: "fixture" | "deepseek" | "stepfun" = "fixture";
-        try {
-          const settings = await client.getSettings();
-          if (settings.plannerProvider === "deepseek" || settings.plannerProvider === "stepfun") {
-            plannerProvider = settings.plannerProvider;
-          }
-        } catch {
-          /* fall back to fixture */
+        const settings = await client.getSettings();
+        let plannerProvider: "fixture" | "deepseek" | "stepfun" =
+          settings.plannerProvider === "stepfun" || settings.plannerProvider === "deepseek"
+            ? settings.plannerProvider
+            : "fixture";
+        if (plannerProvider === "fixture" && settings.hasStepKey) {
+          plannerProvider = "stepfun";
+        } else if (plannerProvider === "fixture" && settings.hasDeepseekKey) {
+          plannerProvider = "deepseek";
         }
         setFlowStep("正在用 LLM 切片成场景…");
         await client.planProject({ provider: plannerProvider, maxScenes: 12, force: true });
@@ -331,9 +342,7 @@ export function App(): React.ReactElement {
         error={null}
         onSettings={() => setShowSettings(true)}
         onReset={() => {
-          if (window.confirm("重新上传文稿会覆盖当前项目，确定继续？")) {
-            setShowLanding(true);
-          }
+          setShowLanding(true);
         }}
         onProjectList={() => {
           setView("project-list");
@@ -354,6 +363,20 @@ export function App(): React.ReactElement {
             busyAction={busyAction}
             actionError={actionError}
             onDismissError={handleDismissError}
+            scenePosition={{
+              current: project.scenes.findIndex((scene) => scene.id === activeScene.id) + 1,
+              total: project.scenes.length,
+              onPrevious: () => {
+                const index = project.scenes.findIndex((scene) => scene.id === activeScene.id);
+                const previous = project.scenes[index - 1];
+                if (previous) handleSelectScene(previous.id);
+              },
+              onNext: () => {
+                const index = project.scenes.findIndex((scene) => scene.id === activeScene.id);
+                const next = project.scenes[index + 1];
+                if (next) handleSelectScene(next.id);
+              },
+            }}
           />
         )}
       </section>

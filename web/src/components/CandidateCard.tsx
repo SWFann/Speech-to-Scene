@@ -1,4 +1,4 @@
-import { ImageIcon, Video, ExternalLink, Sparkles } from "lucide-react";
+import { ImageIcon, Video, ExternalLink, Sparkles, Download } from "lucide-react";
 
 import type {
   ReviewAssetCandidateView,
@@ -109,7 +109,22 @@ function rightsBadge(label: string, value: string): { text: string; cls: string 
   return null;
 }
 
-function AssetCandidateCard({ candidate }: { candidate: ReviewAssetCandidateAssetView }): React.ReactElement {
+function rightsStatusLabel(value: string): string {
+  const labels: Record<string, string> = {
+    public_domain: "公共领域",
+    open_license: "开放许可",
+    platform_license: "平台许可",
+    editorial_only: "仅限编辑用途",
+    unknown: "授权待确认",
+  };
+  return labels[value] ?? "授权待确认";
+}
+
+function AssetCandidateCard({
+  candidate,
+}: {
+  candidate: ReviewAssetCandidateAssetView;
+}): React.ReactElement {
   const rights = candidate.rights;
   const badges: { text: string; cls: string }[] = [];
 
@@ -153,22 +168,20 @@ function AssetCandidateCard({ candidate }: { candidate: ReviewAssetCandidateAsse
           </strong>
         </div>
         <p>
-          {candidate.provider.name} · {candidate.orientation} · 排名 #{candidate.rank}
+          {candidate.provider.name} · {candidate.orientation}
         </p>
         <div className="candidate-creator">
           {candidate.creator.name && <span>作者: {candidate.creator.name}</span>}
           {" · "}
-          <a
-            href={candidate.sourcePageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a href={candidate.sourcePageUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink size={12} />
-            原始页面
+            查看来源并下载
           </a>
         </div>
         <div className="rights">
-          <span className="allow">{rights.status}</span>
+          <span className={rights.status === "unknown" ? "warn" : "allow"}>
+            {rightsStatusLabel(rights.status)}
+          </span>
           {badges.map((b, i) => (
             <span key={i} className={b.cls}>
               {b.text}
@@ -180,35 +193,25 @@ function AssetCandidateCard({ candidate }: { candidate: ReviewAssetCandidateAsse
   );
 }
 
-function LinkCandidateCard({ candidate }: { candidate: ReviewAssetCandidateLinkView }): React.ReactElement {
+function LinkCandidateCard({
+  candidate,
+}: {
+  candidate: ReviewAssetCandidateLinkView;
+}): React.ReactElement {
   const platformLabel = PLATFORM_LABELS[candidate.platform] ?? candidate.platform;
   return (
-    <article className="candidate link-card">
-      <div className="thumb thumb-link">
+    <article className="platform-link-row">
+      <div className="platform-link-icon">
         <PlatformIcon platform={candidate.platform} />
-        <span className="media-type">{platformLabel}</span>
       </div>
       <div className="candidate-body">
-        <div className="candidate-title">
-          <CategoryBadge category={deriveCategory(candidate)} />
-          <strong>{platformLabel} 搜索</strong>
-        </div>
-        <p>关键词：{candidate.keyword}</p>
-        <div className="candidate-creator">
-          <a
-            href={candidate.searchUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <ExternalLink size={12} />
-            在 {platformLabel} 中搜索
-          </a>
-        </div>
-        <div className="rights">
-          <span className="tag">平台链接</span>
-          <span className="tag">需手动筛选</span>
-        </div>
+        <strong>{platformLabel}</strong>
+        <span>{candidate.keyword}</span>
       </div>
+      <a className="btn" href={candidate.searchUrl} target="_blank" rel="noopener noreferrer">
+        <ExternalLink size={13} />
+        打开搜索
+      </a>
     </article>
   );
 }
@@ -245,21 +248,19 @@ function GeneratedCandidateCard({
           </strong>
         </div>
         <p className="generated-prompt" title={candidate.prompt}>
-          {candidate.prompt.length > 60
-            ? `${candidate.prompt.slice(0, 60)}…`
-            : candidate.prompt}
+          {candidate.prompt.length > 60 ? `${candidate.prompt.slice(0, 60)}…` : candidate.prompt}
         </p>
         <div className="candidate-creator">
           <span>模型: {candidate.model}</span>
           {" · "}
-          <a href={candidate.imageUrl} target="_blank" rel="noopener noreferrer">
-            <ExternalLink size={12} />
-            查看图片
+          <a href={candidate.imageUrl} download target="_blank" rel="noopener noreferrer">
+            <Download size={12} />
+            下载图片
           </a>
         </div>
         <div className="rights">
           <span className="tag">AI 生成</span>
-          <span className="tag">无版权限制</span>
+          <span className="tag warn">发布前请自行确认使用权</span>
         </div>
       </div>
     </article>

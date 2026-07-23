@@ -11,7 +11,7 @@ describe("TopBar", () => {
 
     render(<TopBar project={project} error={null} />);
 
-    expect(screen.getByText("1 / 2 场景已搜索")).toBeDefined();
+    expect(screen.getByText("1 / 2 已有素材")).toBeDefined();
   });
 
   it("shows all scenes searched when searchedSceneCount equals sceneCount", () => {
@@ -23,6 +23,6 @@ describe("TopBar", () => {
 
     render(<TopBar project={project} error={null} />);
 
-    expect(screen.getByText("2 / 2 场景已搜索")).toBeDefined();
+    expect(screen.getByText("2 / 2 已有素材")).toBeDefined();
   });
 });

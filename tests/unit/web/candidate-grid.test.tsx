@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import { CandidateGrid } from "../../../web/src/components/CandidateGrid.js";
 import { createMinimalProject } from "../../fixtures/web-test-data.js";
@@ -24,8 +24,8 @@ describe("CandidateGrid", () => {
 
     render(<CandidateGrid candidates={scene.search.candidates} />);
 
-    expect(screen.getByText("暂无候选素材")).toBeDefined();
-    expect(screen.getByText("点击「搜索素材」按钮重新检索")).toBeDefined();
+    expect(screen.getByText("还没有找到可直接使用的素材")).toBeDefined();
+    expect(screen.getByText(/点击「重新找素材」/)).toBeDefined();
   });
 
   it("3. renders multiple candidate cards", () => {
@@ -46,5 +46,27 @@ describe("CandidateGrid", () => {
 
     const cards = container.querySelectorAll(".candidate");
     expect(cards).toHaveLength(2);
+  });
+
+  it("keeps platform search links outside the usable material grid", () => {
+    const project = createMinimalProject();
+    const asset = project.scenes[0]!.search.candidates[0]!;
+    const link = {
+      kind: "link" as const,
+      id: "link-001",
+      platform: "bilibili" as const,
+      searchUrl: "https://search.bilibili.com/all?keyword=test",
+      keyword: "test",
+      retrievedAt: "2026-07-13T10:00:00.000Z",
+      matchedQueryId: "query-001",
+      rank: 2,
+    };
+
+    const { container } = render(<CandidateGrid candidates={[asset, link]} />);
+
+    expect(container.querySelectorAll(".candidate-grid .candidate")).toHaveLength(1);
+    const links = screen.getByTestId("platform-search-links");
+    expect(within(links).getByText(/哔哩哔哩/)).toBeDefined();
+    expect(screen.getByText("更多平台搜索（1）")).toBeDefined();
   });
 });

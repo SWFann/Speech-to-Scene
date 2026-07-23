@@ -201,7 +201,7 @@ describe("App — search flow integration", () => {
     });
 
     // Before clicking, button shows default text
-    expect(screen.getByText("搜索素材")).toBeDefined();
+    expect(screen.getByText("重新找素材")).toBeDefined();
 
     // Click search — this triggers the pending search request
     fireEvent.click(screen.getByTestId("search-scene-btn"));
@@ -217,7 +217,7 @@ describe("App — search flow integration", () => {
 
     // After resolution, loading text is gone and button is enabled again
     await waitFor(() => {
-      expect(screen.getByText("搜索素材")).toBeDefined();
+      expect(screen.getByText("重新找素材")).toBeDefined();
     });
     expect(screen.getByTestId<HTMLButtonElement>("search-scene-btn").disabled).toBe(false);
   });
@@ -286,12 +286,12 @@ describe("App — search flow integration", () => {
 
     render(<App />);
 
-    const titleInput = await screen.findByPlaceholderText("项目标题（可选，默认用文件名）");
+    const titleInput = await screen.findByPlaceholderText("例如：主动回忆笔记");
     fireEvent.change(titleInput, { target: { value: "Active Recall Notes" } });
-    fireEvent.change(screen.getByPlaceholderText("或在此粘贴口播文稿…"), {
+    fireEvent.change(screen.getByPlaceholderText("粘贴你的口播稿，保留原本的段落即可"), {
       target: { value: "A script worth turning into scenes." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "一键生成" }));
+    fireEvent.click(screen.getByRole("button", { name: /开始制作/ }));
 
     await waitFor(() => {
       expect(createBody).toBeDefined();
@@ -299,6 +299,8 @@ describe("App — search flow integration", () => {
     expect(createBody).toMatchObject({
       title: "Active Recall Notes",
       force: false,
+      aspectRatio: "9:16",
+      style: "knowledge",
     });
     expect(createBody?.projectName).toMatch(/^active-recall-notes-[a-z0-9]+$/);
     expect(createBody?.projectName).not.toBe("default");

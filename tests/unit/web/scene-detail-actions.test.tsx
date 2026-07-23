@@ -16,6 +16,12 @@ interface SceneDetailTestProps {
   busyAction: BusyAction;
   actionError: ActionErrorInfo | null;
   onDismissError: () => void;
+  scenePosition?: {
+    current: number;
+    total: number;
+    onPrevious: () => void;
+    onNext: () => void;
+  };
 }
 
 function makeProps(overrides: Partial<SceneDetailTestProps> = {}): SceneDetailTestProps {
@@ -28,6 +34,7 @@ function makeProps(overrides: Partial<SceneDetailTestProps> = {}): SceneDetailTe
     busyAction: overrides.busyAction ?? null,
     actionError: overrides.actionError ?? null,
     onDismissError: overrides.onDismissError ?? noop,
+    ...(overrides.scenePosition ? { scenePosition: overrides.scenePosition } : {}),
   };
 }
 
@@ -58,7 +65,7 @@ describe("SceneDetail — action buttons", () => {
 
   it("5. search button shows default text when not busy", () => {
     render(<SceneDetail {...makeProps({ busyAction: null })} />);
-    expect(screen.getByText("搜索素材")).toBeDefined();
+    expect(screen.getByText("重新找素材")).toBeDefined();
   });
 
   it("6. action error is displayed when actionError is provided", () => {
@@ -98,7 +105,7 @@ describe("SceneDetail — action buttons", () => {
 
   it("9. renders source excerpt", () => {
     render(<SceneDetail {...makeProps()} />);
-    expect(screen.getByText(/原文片段/)).toBeDefined();
+    expect(screen.getByText("这段口播需要配画面")).toBeDefined();
   });
 
   it("10. renders search queries as read-only inputs", () => {
@@ -110,7 +117,7 @@ describe("SceneDetail — action buttons", () => {
 
   it("11. renders candidate count when candidates exist", () => {
     render(<SceneDetail {...makeProps()} />);
-    expect(screen.getByText(/共 1 个候选/)).toBeDefined();
+    expect(screen.getByText("1 个可用素材")).toBeDefined();
   });
 
   it("12. renders no candidate message when empty", () => {
@@ -144,7 +151,7 @@ describe("SceneDetail — action buttons", () => {
 
   it("17. generate button shows default text when not busy", () => {
     render(<SceneDetail {...makeProps({ busyAction: null })} />);
-    expect(screen.getByText("生成图片")).toBeDefined();
+    expect(screen.getByText("AI 生成图片")).toBeDefined();
   });
 
   it("18. clicking generate button opens prompt editor", () => {
@@ -186,5 +193,23 @@ describe("SceneDetail — action buttons", () => {
   it("22. generate button is disabled when busyAction='search'", () => {
     render(<SceneDetail {...makeProps({ busyAction: "search" })} />);
     expect(screen.getByTestId<HTMLButtonElement>("generate-image-btn").disabled).toBe(true);
+  });
+
+  it("provides obvious previous and next scene navigation", () => {
+    const previous = vi.fn();
+    const next = vi.fn();
+    render(
+      <SceneDetail
+        {...makeProps({
+          scenePosition: { current: 2, total: 4, onPrevious: previous, onNext: next },
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "上一个场景" }));
+    fireEvent.click(screen.getByRole("button", { name: "下一个场景" }));
+    expect(previous).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledOnce();
+    expect(screen.getByText("2 / 4")).toBeDefined();
   });
 });
