@@ -204,7 +204,13 @@ describe("validateProject", () => {
           ...makeProject().scenes[0]!,
           search: {
             queries: [
-              { id: "query-001", language: "en", query: "city", purpose: "background", enabled: true },
+              {
+                id: "query-001",
+                language: "en",
+                query: "city",
+                purpose: "background",
+                enabled: true,
+              },
             ],
             candidates: [candidate],
             lastSearchedAt: FIXED_NOW,

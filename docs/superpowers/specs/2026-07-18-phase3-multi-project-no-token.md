@@ -6,6 +6,7 @@
 ## 1. 目标与非目标
 
 **目标**
+
 - Review Server 启动时扫描 `workspace/` 目录，列出所有子项目（含 `project.s2s.json` 的目录）。
 - 前端新增项目列表页，可切换/新建/删除项目。
 - 移除 session token 机制：所有 API 不再要求 `X-S2S-Session` header，URL 不再需要 `?token=`。
@@ -13,6 +14,7 @@
 - `pnpm start` 一行启动后自动开浏览器，零配置直达项目列表或上次项目。
 
 **非目标（阶段 3 不做）**
+
 - 不做项目导入/导出。
 - 不做项目模板。
 - 不做项目间素材共享。
@@ -26,6 +28,7 @@
 **现状**：所有 mutating routes 需 `X-S2S-Session` header；GET /api/project 也需 token。
 
 **变更后**：
+
 - 移除 `validateSessionToken` 调用（所有路由）。
 - 移除 `TOKEN_GATED_PATHS` 集合。
 - 移除 `ReviewServerConfig.token` 字段。
@@ -36,15 +39,16 @@
 
 ### 2.2 保留的安全层
 
-| 层 | 保留 | 说明 |
-|---|---|---|
-| Loopback 绑定 | ✅ | 只监听 127.0.0.1，不暴露外网 |
-| Host 校验 | ✅ | 拒绝非 loopback Host header（防 DNS rebinding） |
-| Origin 校验 | ✅ | mutating routes 校验 Origin（防 CSRF） |
-| Security headers | ✅ | CSP / X-Content-Type-Options 等不变 |
-| Token | ❌ 移除 | loopback + Host + Origin 已足够 |
+| 层               | 保留    | 说明                                            |
+| ---------------- | ------- | ----------------------------------------------- |
+| Loopback 绑定    | ✅      | 只监听 127.0.0.1，不暴露外网                    |
+| Host 校验        | ✅      | 拒绝非 loopback Host header（防 DNS rebinding） |
+| Origin 校验      | ✅      | mutating routes 校验 Origin（防 CSRF）          |
+| Security headers | ✅      | CSP / X-Content-Type-Options 等不变             |
+| Token            | ❌ 移除 | loopback + Host + Origin 已足够                 |
 
 **安全论证**：
+
 - 本工具是本地单用户工具，不像 Jupyter 那样可能暴露到局域网。
 - Host 校验防止 DNS rebinding（恶意域名解析到 127.0.0.1）。
 - Origin 校验防止浏览器 CSRF（恶意网站跨域请求）。
@@ -55,6 +59,7 @@
 ### 3.1 Workspace 扫描
 
 Review Server 启动时扫描 `workspace/` 直接子目录：
+
 - 含 `project.s2s.json` 的目录 → 已有项目。
 - 不含的 → 忽略（不报错）。
 - `workspace/.s2s/` 目录 → 跳过（是 settings 目录，不是项目）。
@@ -70,8 +75,8 @@ Review Server 启动时扫描 `workspace/` 直接子目录：
 ```ts
 // ReviewServerConfig 变更
 interface ReviewServerConfig {
-  readonly workspaceRoot: string;    // 新增：workspace 根目录
-  readonly projectRoot: string;      // 保留：当前活跃项目（可运行时切换）
+  readonly workspaceRoot: string; // 新增：workspace 根目录
+  readonly projectRoot: string; // 保留：当前活跃项目（可运行时切换）
   readonly host: string;
   readonly port: number;
   readonly version: string;
@@ -89,6 +94,7 @@ interface ReviewServerConfig {
 列出 workspace 下所有项目。
 
 响应：
+
 ```jsonc
 {
   "ok": true,
@@ -100,7 +106,7 @@ interface ReviewServerConfig {
       "title": "我的第一个项目",
       "sceneCount": 8,
       "updatedAt": "2026-07-18T10:00:00Z",
-      "isActive": true
+      "isActive": true,
     },
     {
       "name": "demo2",
@@ -109,10 +115,10 @@ interface ReviewServerConfig {
       "title": "第二个项目",
       "sceneCount": 5,
       "updatedAt": "2026-07-17T15:00:00Z",
-      "isActive": false
-    }
+      "isActive": false,
+    },
   ],
-  "activeProject": "default"
+  "activeProject": "default",
 }
 ```
 
@@ -121,13 +127,15 @@ interface ReviewServerConfig {
 切换活跃项目。
 
 请求体：
+
 ```jsonc
 {
-  "project": "demo2"   // workspace 下的目录名
+  "project": "demo2", // workspace 下的目录名
 }
 ```
 
 后端：
+
 - 校验目录存在且含 `project.s2s.json`（否则 404）。
 - 更新 server `currentProjectRoot`。
 - 返回 `{ project: ReviewProjectView }`（新活跃项目的视图）。
@@ -137,13 +145,15 @@ interface ReviewServerConfig {
 删除当前活跃项目（删除目录下所有文件）。
 
 请求体：
+
 ```jsonc
 {
-  "confirm": "项目名确认"   // 必须输入项目名确认
+  "confirm": "项目名确认", // 必须输入项目名确认
 }
 ```
 
 后端：
+
 - 校验 `confirm` 等于当前项目目录名。
 - 删除项目目录下所有文件（`project.s2s.json`、`script.md`、`assets/`、`cache/`、`logs/`）。
 - 不删除 `workspace/.s2s/`（settings 保留）。
@@ -153,6 +163,7 @@ interface ReviewServerConfig {
 ### 4.4 POST /api/project/create（变更）
 
 body 新增可选 `projectName?: string`（默认 `"default"`）。
+
 - `projectDirectory` = `workspaceRoot/projectName`。
 - 若目录已有项目且 `force=false` → 409。
 - 创建后自动设为活跃项目。
@@ -174,6 +185,7 @@ body 新增可选 `projectName?: string`（默认 `"default"`）。
 ### 5.1 ProjectListView（新）
 
 无活跃项目或用户主动切换时显示：
+
 - 项目卡片列表：项目名、标题、场景数、更新时间、活跃标记。
 - 每张卡片：「打开」按钮（switch）、「删除」按钮（确认后 delete）。
 - 顶部「新建项目」按钮 → 跳转 LandingView。
@@ -188,9 +200,7 @@ body 新增可选 `projectName?: string`（默认 `"default"`）。
 
 ```ts
 type AppView =
-  | { kind: "project-list" }
-  | { kind: "landing"; projectName: string }
-  | { kind: "review" };
+  { kind: "project-list" } | { kind: "landing"; projectName: string } | { kind: "review" };
 ```
 
 - 启动时先 `GET /api/projects`：

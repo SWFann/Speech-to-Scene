@@ -36,9 +36,7 @@ import {
 import { computeSha256, decodeSourceText } from "../infrastructure/source-document.js";
 import { buildSourceBlocks } from "../planner/source-blocks.js";
 import { resolveAnchors } from "../planner/anchor-resolver.js";
-import {
-  PlannerOutputSchema,
-} from "../planner/planner-output-schema.js";
+import { PlannerOutputSchema } from "../planner/planner-output-schema.js";
 
 // ---------------------------------------------------------------------------
 // Types

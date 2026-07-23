@@ -320,8 +320,11 @@ describe("PATCH /api/scenes/:sceneId", () => {
     });
 
     expect(status).toBe(200);
-    const project = (body as { project: { scenes: Array<{ visualPlan: { rationale: string; decision: string } }> } })
-      .project;
+    const project = (
+      body as {
+        project: { scenes: Array<{ visualPlan: { rationale: string; decision: string } }> };
+      }
+    ).project;
     expect(project.scenes[0]!.visualPlan.rationale).toBe("Updated rationale");
     expect(project.scenes[0]!.visualPlan.decision).toBe("title_card");
   }, 10000);

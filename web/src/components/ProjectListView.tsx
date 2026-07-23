@@ -63,29 +63,17 @@ export function ProjectListView({
         </div>
         <div className="project-meta">
           <span>项目列表</span>
-          <span className="status-pill ok">
-            {projects.length} 个项目
-          </span>
+          <span className="status-pill ok">{projects.length} 个项目</span>
         </div>
         <div className="actions">
-          <button
-            className="btn primary"
-            type="button"
-            onClick={onCreate}
-            title="创建新项目"
-          >
+          <button className="btn primary" type="button" onClick={onCreate} title="创建新项目">
             <Plus size={14} />
             新建项目
           </button>
         </div>
       </header>
 
-      {error && onDismissError && (
-        <ActionError
-          error={error}
-          onDismiss={onDismissError}
-        />
-      )}
+      {error && onDismissError && <ActionError error={error} onDismiss={onDismissError} />}
 
       {loading ? (
         <div className="loading-view">

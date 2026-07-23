@@ -13,7 +13,11 @@
  */
 
 import type { LinkSuggestionGenerator } from "../application/search-project-assets.js";
-import type { AssetCandidateLink, LinkPlatform, CandidateCategory } from "../domain/asset-schema.js";
+import type {
+  AssetCandidateLink,
+  LinkPlatform,
+  CandidateCategory,
+} from "../domain/asset-schema.js";
 import { platformToCategory } from "../domain/asset-schema.js";
 
 // ---------------------------------------------------------------------------

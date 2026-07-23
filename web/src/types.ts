@@ -46,11 +46,7 @@ export interface ReviewAssetRightsView {
  */
 /** Phase 3: candidate category for UI grouping/filtering. */
 export type CandidateCategory =
-  | "stock_library"
-  | "video_platform"
-  | "stock_site"
-  | "social_media"
-  | "ai_generated";
+  "stock_library" | "video_platform" | "stock_site" | "social_media" | "ai_generated";
 
 /** Phase 3: all supported link platforms. */
 export type LinkPlatform =
@@ -132,9 +128,7 @@ export interface ReviewAssetCandidateGeneratedView {
  * Asset candidate (discriminated union on `kind`).
  */
 export type ReviewAssetCandidateView =
-  | ReviewAssetCandidateAssetView
-  | ReviewAssetCandidateLinkView
-  | ReviewAssetCandidateGeneratedView;
+  ReviewAssetCandidateAssetView | ReviewAssetCandidateLinkView | ReviewAssetCandidateGeneratedView;
 
 export interface ReviewSearchQueryView {
   readonly id: string;

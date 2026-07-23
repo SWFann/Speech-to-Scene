@@ -34,10 +34,7 @@ describe("switchProject", () => {
   it("resolves project root for a valid project name", async () => {
     const repo = makeRepository(new Set([`${WORKSPACE}/demo2`]));
 
-    const result = await switchProject(
-      { workspaceRoot: WORKSPACE, project: "demo2" },
-      repo,
-    );
+    const result = await switchProject({ workspaceRoot: WORKSPACE, project: "demo2" }, repo);
 
     expect(result.projectRoot).toBe(`${WORKSPACE}/demo2`);
     expect(result.project).toBe("demo2");
@@ -54,9 +51,9 @@ describe("switchProject", () => {
   it("throws InvalidArgumentError for empty project name", async () => {
     const repo = makeRepository(new Set());
 
-    await expect(
-      switchProject({ workspaceRoot: WORKSPACE, project: "" }, repo),
-    ).rejects.toThrow(InvalidArgumentError);
+    await expect(switchProject({ workspaceRoot: WORKSPACE, project: "" }, repo)).rejects.toThrow(
+      InvalidArgumentError,
+    );
   });
 
   it("throws InvalidArgumentError for path traversal attempts", async () => {
@@ -86,18 +83,15 @@ describe("switchProject", () => {
   it("throws InvalidArgumentError for dot segment", async () => {
     const repo = makeRepository(new Set());
 
-    await expect(
-      switchProject({ workspaceRoot: WORKSPACE, project: "." }, repo),
-    ).rejects.toThrow(InvalidArgumentError);
+    await expect(switchProject({ workspaceRoot: WORKSPACE, project: "." }, repo)).rejects.toThrow(
+      InvalidArgumentError,
+    );
   });
 
   it("trims whitespace from project name", async () => {
     const repo = makeRepository(new Set([`${WORKSPACE}/demo`]));
 
-    const result = await switchProject(
-      { workspaceRoot: WORKSPACE, project: "  demo  " },
-      repo,
-    );
+    const result = await switchProject({ workspaceRoot: WORKSPACE, project: "  demo  " }, repo);
 
     expect(result.project).toBe("demo");
   });
@@ -105,10 +99,7 @@ describe("switchProject", () => {
   it("strips trailing slashes from workspaceRoot", async () => {
     const repo = makeRepository(new Set([`${WORKSPACE}/demo`]));
 
-    const result = await switchProject(
-      { workspaceRoot: `${WORKSPACE}/`, project: "demo" },
-      repo,
-    );
+    const result = await switchProject({ workspaceRoot: `${WORKSPACE}/`, project: "demo" }, repo);
 
     expect(result.projectRoot).toBe(`${WORKSPACE}/demo`);
   });
