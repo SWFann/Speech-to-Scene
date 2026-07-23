@@ -533,11 +533,157 @@ describe("searchProjectAssets", (): void => {
       const ids = project.scenes[0]!.search.candidates.filter(
         (candidate) => candidate.kind === "asset",
       ).map((candidate) => candidate.id);
-      expect(ids).toEqual([
-        "best-quality",
-        "lower-resolution",
-        "unclear-rights",
-        "wrong-orientation",
+      expect(ids).toEqual(["best-quality", "lower-resolution", "wrong-orientation"]);
+    });
+
+    it("filters commercial rights that are disallowed or unclear", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "commercial_capable",
+        willModify: false,
+      };
+      const allowedRights = createMockCandidate().rights;
+      const candidates = [
+        createMockCandidate({ id: "commercial-allowed", providerAssetId: "allowed" }),
+        createMockCandidate({
+          id: "commercial-disallowed",
+          providerAssetId: "disallowed",
+          rights: { ...allowedRights, commercialUse: "disallowed" },
+        }),
+        createMockCandidate({
+          id: "commercial-unclear",
+          providerAssetId: "unclear",
+          rights: { ...allowedRights, commercialUse: "unclear" },
+        }),
+      ];
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates, warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "commercial-allowed",
+      ]);
+    });
+
+    it("filters disallowed and unclear derivatives when the project will modify assets", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "noncommercial",
+        willModify: true,
+      };
+      const allowedRights = createMockCandidate().rights;
+      const candidates = [
+        createMockCandidate({ id: "derivatives-allowed", providerAssetId: "allowed" }),
+        createMockCandidate({
+          id: "derivatives-disallowed",
+          providerAssetId: "disallowed",
+          rights: { ...allowedRights, derivatives: "disallowed" },
+        }),
+        createMockCandidate({
+          id: "derivatives-unclear",
+          providerAssetId: "unclear",
+          rights: { ...allowedRights, derivatives: "unclear" },
+        }),
+      ];
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates, warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "derivatives-allowed",
+      ]);
+    });
+
+    it("keeps editorial-only assets for an editorial project", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "editorial",
+        willModify: false,
+      };
+      const editorial = createMockCandidate({
+        id: "editorial-only",
+        providerAssetId: "editorial-only",
+        rights: {
+          ...createMockCandidate().rights,
+          status: "editorial_only",
+          commercialUse: "disallowed",
+          derivatives: "unclear",
+        },
+      });
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates: [editorial], warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "editorial-only",
+      ]);
+    });
+
+    it("keeps share-alike assets after assets with unrestricted derivatives", async () => {
+      const project = createMockProject(1);
+      project.project.assetUsePolicy = {
+        intendedUse: "commercial_capable",
+        willModify: true,
+      };
+      const allowedRights = createMockCandidate().rights;
+      const candidates = [
+        createMockCandidate({
+          id: "share-alike",
+          providerAssetId: "share-alike",
+          orientation: "portrait",
+          width: 1080,
+          height: 1920,
+          rights: { ...allowedRights, derivatives: "share_alike" },
+          rank: 1,
+        }),
+        createMockCandidate({
+          id: "derivatives-allowed",
+          providerAssetId: "derivatives-allowed",
+          orientation: "portrait",
+          width: 1080,
+          height: 1920,
+          rank: 2,
+        }),
+      ];
+      const provider: SearchProvider = {
+        providerId: "openverse",
+        providerPolicyRevision: "1",
+        capabilities: { photos: true, videos: false, orientationFilter: false },
+        search: vi.fn().mockResolvedValue({ candidates, warnings: [] }),
+      };
+
+      await searchProjectAssets(
+        makeInput({ providers: ["openverse"] }),
+        makeDeps(createMockRepository(project), provider, createMockCache(), () => new Date()),
+      );
+
+      expect(project.scenes[0]!.search.candidates.map((candidate) => candidate.id)).toEqual([
+        "derivatives-allowed",
+        "share-alike",
       ]);
     });
 

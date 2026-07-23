@@ -235,8 +235,12 @@ export async function searchProjectAssets(
 
     // Deduplicate, quality-rank, diversify, and cap real asset candidates.
     const dedupedAssets = deduplicateCandidates(assetCandidates);
-    const rankedAssets = rankAndDiversifyCandidates(
+    const policyCompliantAssets = filterCandidatesForPolicy(
       dedupedAssets,
+      project.project.assetUsePolicy,
+    );
+    const rankedAssets = rankAndDiversifyCandidates(
+      policyCompliantAssets,
       mapAspectRatioToOrientation(project.project.aspectRatio),
       project.project.assetUsePolicy,
       MAX_ASSET_CANDIDATES_PER_SCENE,
@@ -470,6 +474,30 @@ function deduplicateCandidates(candidates: readonly PortAssetCandidate[]): PortA
   return Array.from(seen.values());
 }
 
+function filterCandidatesForPolicy(
+  candidates: readonly PortAssetCandidate[],
+  policy: AssetUsePolicy,
+): PortAssetCandidate[] {
+  return candidates.filter((candidate) => {
+    if (
+      policy.intendedUse === "commercial_capable" &&
+      candidate.rights.commercialUse !== "allowed"
+    ) {
+      return false;
+    }
+
+    if (
+      policy.willModify &&
+      candidate.rights.derivatives !== "allowed" &&
+      candidate.rights.derivatives !== "share_alike"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 /**
  * Sorts candidates within each provider by deterministic quality signals, then
  * round-robins provider groups so one source cannot fill the first page.
@@ -557,12 +585,19 @@ function candidateQualitySignals(
     !policy.willModify ||
     candidate.rights.derivatives === "allowed" ||
     candidate.rights.derivatives === "share_alike";
+  const modificationFreedom =
+    candidate.rights.derivatives === "allowed"
+      ? 2
+      : candidate.rights.derivatives === "share_alike"
+        ? 1
+        : 0;
   const hasPreview = candidate.mediaType === "photo" || candidate.previewUrl !== undefined;
 
   return [
     candidate.orientation === targetOrientation ? 1 : 0,
     useMatches ? 1 : 0,
     modificationMatches ? 1 : 0,
+    modificationFreedom,
     hasPreview ? 1 : 0,
     candidate.width * candidate.height,
   ];
