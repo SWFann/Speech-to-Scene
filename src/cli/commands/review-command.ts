@@ -43,7 +43,6 @@ import {
   resolveConfiguredProviders,
 } from "../provider-factory.js";
 import { FileSearchCache } from "../../infrastructure/file-search-cache.js";
-import { readEnv } from "../../infrastructure/env.js";
 import { resolveReviewStaticRoot } from "../review-static-root.js";
 
 // ---------------------------------------------------------------------------
@@ -119,11 +118,9 @@ export function createReviewCommand(ctx: CommandContext): Command {
         });
 
         // Start server with injected dependencies
-        const assetProviderEnv = readEnv().assetProvider;
         const linkGenerator = new DefaultLinkSuggestionGenerator();
-        const { FsGeneratedImageDownloader } = await import(
-          "../../infrastructure/fs-generated-image-downloader.js"
-        );
+        const { FsGeneratedImageDownloader } =
+          await import("../../infrastructure/fs-generated-image-downloader.js");
         const imageDownloader = new FsGeneratedImageDownloader();
         const resolvedPort = port;
         // Pre-declare a port ref so the generateSceneImage closure can read the actual bound port
@@ -131,8 +128,17 @@ export function createReviewCommand(ctx: CommandContext): Command {
         const searchSceneAssetsBound = (input: unknown): Promise<SearchProjectAssetsResult> =>
           searchSceneAssets(input, {
             repository: ctx.repository,
-            createProvider: async (providerName: string) =>
-              createSearchProvider(providerName, assetProviderEnv),
+            resolveProviders: async (requestedProviders) => {
+              const settings = await settingsStore.load();
+              return resolveConfiguredProviders(
+                assetProviderEnvFromSettings(settings),
+                requestedProviders,
+              );
+            },
+            createProvider: async (providerName: string) => {
+              const settings = await settingsStore.load();
+              return createSearchProvider(providerName, assetProviderEnvFromSettings(settings));
+            },
             createCache: (projectRoot: string, providerName: string) =>
               new FileSearchCache({ cacheDir: getSearchCacheDir(projectRoot, providerName) }),
             linkGenerator,
@@ -247,11 +253,7 @@ export function createReviewCommand(ctx: CommandContext): Command {
 
           // Phase 3: list all projects in the workspace
           listProjects: (workspaceRoot: string) =>
-            listProjectsUseCase(
-              workspaceRoot,
-              new FileSystemWorkspaceScanner(),
-              ctx.repository,
-            ),
+            listProjectsUseCase(workspaceRoot, new FileSystemWorkspaceScanner(), ctx.repository),
 
           // Phase 3: switch to a different project
           switchProject: (input: unknown) =>

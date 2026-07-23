@@ -29,13 +29,16 @@ import type { Scene } from "../domain/scene-schema.js";
 import type { AssetCandidateLink, AssetCandidate } from "../domain/asset-schema.js";
 import { SpeechToSceneProjectSchema } from "../domain/project-schema.js";
 import { AssetCandidateSchema } from "../domain/asset-schema.js";
-import { ProjectNotPlannedError, ProjectValidationError } from "../shared/errors.js";
+import { AppError, ProjectNotPlannedError, ProjectValidationError } from "../shared/errors.js";
+
+const MAX_ASSET_CANDIDATES_PER_SCENE = 12;
 
 /**
  * Input for searchProjectAssets use case.
  *
  * `providers` lists the provider names to aggregate (e.g., ["fixture"],
- * ["pexels", "pixabay"]). If empty, defaults to ["fixture"].
+ * ["pexels", "pixabay"]). Production composition roots resolve defaults before
+ * invoking this use case; an empty list means link suggestions only.
  */
 export interface SearchProjectAssetsInput {
   readonly projectRoot: string;
@@ -141,17 +144,37 @@ export async function searchProjectAssets(
     throw new ProjectNotPlannedError(`Scene not found: ${input.sceneId}`);
   }
 
-  // Step 4: Resolve providers (default to fixture when none specified)
-  const providerNames = input.providers.length > 0 ? input.providers : ["fixture"];
-  const providers: SearchProvider[] = [];
-  for (const name of providerNames) {
-    providers.push(await deps.createProvider(name));
-  }
-
   let totalCandidates = 0;
   let cacheHits = 0;
   let cacheMisses = 0;
   const allWarnings: Array<{ code: string; message: string; queryId?: string }> = [];
+
+  // Step 4: Create only the providers selected by the composition root.
+  const providerResolutions = await Promise.all(
+    input.providers.map(async (name) => {
+      try {
+        return { provider: await deps.createProvider(name) };
+      } catch (error) {
+        if (!(error instanceof AppError)) {
+          throw error;
+        }
+        return {
+          warning: {
+            code: "provider_unavailable",
+            message: `${name} 素材源暂时不可用`,
+          },
+        };
+      }
+    }),
+  );
+  const providers: SearchProvider[] = [];
+  for (const resolution of providerResolutions) {
+    if ("provider" in resolution && resolution.provider) {
+      providers.push(resolution.provider);
+    } else if ("warning" in resolution && resolution.warning) {
+      allWarnings.push(resolution.warning);
+    }
+  }
 
   // Step 5: Process each scene
   for (const scene of scenes) {
@@ -163,56 +186,64 @@ export async function searchProjectAssets(
 
     const assetCandidates: PortAssetCandidate[] = [];
 
-    // Process each enabled query against each provider
-    for (const query of enabledQueries) {
-      for (const provider of providers) {
-        const searchInput = buildSearchInput(
-          query,
-          scene,
-          project.project.aspectRatio,
-          provider.capabilities,
-          input.maxAssetsPerQuery,
-          project.project.assetUsePolicy,
-        );
+    // Process each enabled query/provider pair concurrently within this scene.
+    const searchResults = await Promise.all(
+      enabledQueries.flatMap((query) =>
+        providers.map((provider) => {
+          const searchInput = buildSearchInput(
+            query,
+            scene,
+            project.project.aspectRatio,
+            provider.capabilities,
+            input.maxAssetsPerQuery,
+            project.project.assetUsePolicy,
+          );
 
-        const cacheInput: CacheSearchInput = {
-          queryId: searchInput.queryId,
-          query: searchInput.query,
-          language: searchInput.language,
-          mediaTypes: searchInput.mediaTypes,
-          orientation: searchInput.orientation,
-          perPage: searchInput.perPage,
-          page: searchInput.page,
-          sceneId: searchInput.sceneId,
-        };
+          const cacheInput: CacheSearchInput = {
+            queryId: searchInput.queryId,
+            query: searchInput.query,
+            language: searchInput.language,
+            mediaTypes: searchInput.mediaTypes,
+            orientation: searchInput.orientation,
+            perPage: searchInput.perPage,
+            page: searchInput.page,
+            sceneId: searchInput.sceneId,
+          };
 
-        const cache = deps.createCache(input.projectRoot, provider.providerId);
+          const cache = deps.createCache(input.projectRoot, provider.providerId);
+          return resolveSearchResult(
+            searchInput,
+            cacheInput,
+            provider,
+            cache,
+            input.refresh ?? false,
+            deps.now,
+          );
+        }),
+      ),
+    );
 
-        const searchResult = await resolveSearchResult(
-          searchInput,
-          cacheInput,
-          provider,
-          cache,
-          input.refresh ?? false,
-          deps.now,
-        );
-
-        if (searchResult.fromCache) {
-          cacheHits++;
-        } else {
-          cacheMisses++;
-        }
-
-        assetCandidates.push(...searchResult.candidates);
-        allWarnings.push(...searchResult.warnings);
+    for (const searchResult of searchResults) {
+      if (searchResult.fromCache) {
+        cacheHits++;
+      } else {
+        cacheMisses++;
       }
+      assetCandidates.push(...searchResult.candidates);
+      allWarnings.push(...searchResult.warnings);
     }
 
-    // Deduplicate asset candidates across providers and queries
+    // Deduplicate, quality-rank, diversify, and cap real asset candidates.
     const dedupedAssets = deduplicateCandidates(assetCandidates);
+    const rankedAssets = rankAndDiversifyCandidates(
+      dedupedAssets,
+      mapAspectRatioToOrientation(project.project.aspectRatio),
+      project.project.assetUsePolicy,
+      MAX_ASSET_CANDIDATES_PER_SCENE,
+    );
 
     // Tag asset candidates with category: stock_library
-    for (const asset of dedupedAssets) {
+    for (const asset of rankedAssets) {
       const a = asset as { category?: string };
       if (asset.kind === "asset" && !a.category) {
         a.category = "stock_library";
@@ -229,9 +260,8 @@ export async function searchProjectAssets(
       retrievedAt,
     });
 
-    // Interleave candidates by category so link cards are not always at the end.
-    // Round-robin: take one from each category group in turn.
-    const combined = interleaveByCategory(dedupedAssets, linkCandidates);
+    // Links do not consume the real-material budget and remain after assets.
+    const combined: AssetCandidate[] = [...rankedAssets, ...linkCandidates];
 
     // Re-assign ranks so they are sequential after interleaving
     combined.forEach((c, i) => {
@@ -299,7 +329,11 @@ async function resolveSearchResult(
   cache: SearchCache,
   refresh: boolean,
   now: () => Date,
-): Promise<{ candidates: PortAssetCandidate[]; warnings: ReadonlyArray<{ code: string; message: string; queryId?: string }>; fromCache: boolean }> {
+): Promise<{
+  candidates: PortAssetCandidate[];
+  warnings: ReadonlyArray<{ code: string; message: string; queryId?: string }>;
+  fromCache: boolean;
+}> {
   const cacheKey = computeProviderCacheKey(
     cacheInput,
     provider.providerId,
@@ -313,9 +347,7 @@ async function resolveSearchResult(
       try {
         const cachedCandidates = AssetCandidateSchema.array().parse(cacheResult.entry.response);
         return {
-          candidates: cachedCandidates.filter(
-            (c): c is PortAssetCandidate => c.kind === "asset",
-          ),
+          candidates: cachedCandidates.filter((c): c is PortAssetCandidate => c.kind === "asset"),
           warnings: cacheResult.entry.warnings,
           fromCache: true,
         };
@@ -325,8 +357,27 @@ async function resolveSearchResult(
     }
   }
 
-  // Search provider
-  const searchResult = await provider.search(searchInput);
+  // Expected provider failures are non-fatal so other sources can continue.
+  // Programming errors remain visible.
+  let searchResult: AssetSearchResult;
+  try {
+    searchResult = await provider.search(searchInput);
+  } catch (error) {
+    if (!(error instanceof AppError)) {
+      throw error;
+    }
+    return {
+      candidates: [],
+      warnings: [
+        {
+          code: "provider_search_failed",
+          message: `${provider.providerId} 素材搜索暂时不可用`,
+          queryId: searchInput.queryId,
+        },
+      ],
+      fromCache: false,
+    };
+  }
 
   // Write to cache (non-fatal on failure)
   try {
@@ -416,57 +467,103 @@ function deduplicateCandidates(candidates: readonly PortAssetCandidate[]): PortA
     }
   }
 
-  // Sort by rank and return
-  return Array.from(seen.values()).sort((a, b) => a.rank - b.rank);
+  return Array.from(seen.values());
 }
 
 /**
- * Interleaves asset and link candidates by category so that link cards
- * (video_platform, stock_site, social_media) are not all pushed to the end.
- *
- * Groups candidates by category, then round-robins: takes one candidate from
- * each non-empty group in turn. This ensures a mix of stock library results,
- * video platform links, and stock site links throughout the list.
- *
- * Categories order: stock_library, video_platform, stock_site, social_media, ai_generated
+ * Sorts candidates within each provider by deterministic quality signals, then
+ * round-robins provider groups so one source cannot fill the first page.
  */
-function interleaveByCategory(
-  assets: readonly AssetCandidate[],
-  links: readonly AssetCandidateLink[],
-): AssetCandidate[] {
-  const all: AssetCandidate[] = [...assets, ...links];
-
-  // Group by category
-  const categoryOrder = ["stock_library", "video_platform", "stock_site", "social_media", "ai_generated"] as const;
-  const groups: Map<string, AssetCandidate[]> = new Map();
-  for (const cat of categoryOrder) {
-    groups.set(cat, []);
+function rankAndDiversifyCandidates(
+  candidates: readonly PortAssetCandidate[],
+  targetOrientation: "portrait" | "landscape" | "square",
+  policy: AssetUsePolicy,
+  limit: number,
+): PortAssetCandidate[] {
+  const byProvider = new Map<string, PortAssetCandidate[]>();
+  for (const candidate of candidates) {
+    const group = byProvider.get(candidate.provider.id) ?? [];
+    group.push(candidate);
+    byProvider.set(candidate.provider.id, group);
   }
 
-  for (const candidate of all) {
-    const cat = candidate.category ?? (candidate.kind === "generated" ? "ai_generated" : "stock_library");
-    const list = groups.get(cat);
-    if (list) {
-      list.push(candidate);
-    } else {
-      // Unknown category — put in stock_library as fallback
-      groups.get("stock_library")!.push(candidate);
-    }
+  const compare = (left: PortAssetCandidate, right: PortAssetCandidate): number =>
+    compareCandidateQuality(left, right, targetOrientation, policy);
+  for (const group of byProvider.values()) {
+    group.sort(compare);
   }
 
-  // Round-robin: take one from each group in turn
-  const result: AssetCandidate[] = [];
-  let remaining = all.length;
-  while (remaining > 0) {
-    for (const cat of categoryOrder) {
-      const list = groups.get(cat);
-      if (list && list.length > 0) {
-        result.push(list.shift()!);
-        remaining--;
-        if (remaining === 0) break;
+  const providerGroups = Array.from(byProvider.entries()).sort(
+    ([leftId, left], [rightId, right]) => {
+      const qualityOrder = compare(left[0]!, right[0]!);
+      return qualityOrder !== 0 ? qualityOrder : leftId.localeCompare(rightId);
+    },
+  );
+
+  const ranked: PortAssetCandidate[] = [];
+  while (ranked.length < limit) {
+    let added = false;
+    for (const [, group] of providerGroups) {
+      const candidate = group.shift();
+      if (candidate) {
+        ranked.push(candidate);
+        added = true;
+        if (ranked.length === limit) {
+          break;
+        }
       }
     }
+    if (!added) {
+      break;
+    }
   }
 
-  return result;
+  return ranked;
+}
+
+function compareCandidateQuality(
+  left: PortAssetCandidate,
+  right: PortAssetCandidate,
+  targetOrientation: "portrait" | "landscape" | "square",
+  policy: AssetUsePolicy,
+): number {
+  const leftSignals = candidateQualitySignals(left, targetOrientation, policy);
+  const rightSignals = candidateQualitySignals(right, targetOrientation, policy);
+
+  for (let index = 0; index < leftSignals.length; index++) {
+    const difference = rightSignals[index]! - leftSignals[index]!;
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+
+  const rankOrder = left.rank - right.rank;
+  return rankOrder !== 0 ? rankOrder : left.providerAssetId.localeCompare(right.providerAssetId);
+}
+
+function candidateQualitySignals(
+  candidate: PortAssetCandidate,
+  targetOrientation: "portrait" | "landscape" | "square",
+  policy: AssetUsePolicy,
+): readonly number[] {
+  const useMatches =
+    policy.intendedUse === "commercial_capable"
+      ? candidate.rights.commercialUse === "allowed"
+      : policy.intendedUse === "editorial"
+        ? candidate.rights.status === "editorial_only" ||
+          candidate.rights.commercialUse === "allowed"
+        : candidate.rights.commercialUse !== "unclear";
+  const modificationMatches =
+    !policy.willModify ||
+    candidate.rights.derivatives === "allowed" ||
+    candidate.rights.derivatives === "share_alike";
+  const hasPreview = candidate.mediaType === "photo" || candidate.previewUrl !== undefined;
+
+  return [
+    candidate.orientation === targetOrientation ? 1 : 0,
+    useMatches ? 1 : 0,
+    modificationMatches ? 1 : 0,
+    hasPreview ? 1 : 0,
+    candidate.width * candidate.height,
+  ];
 }

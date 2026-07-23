@@ -258,22 +258,23 @@ export function assetProviderEnvFromSettings(settings: Settings): AssetProviderE
 
 /**
  * Returns the list of provider names that are currently usable based on which
- * API keys are configured. Always includes "fixture" as a fallback.
+ * API keys are configured. Openverse is the keyless production fallback.
  *
- * If `providers` is specified, filters to only those that are usable.
+ * Fixture is available only when explicitly requested for deterministic tests
+ * or demos. If `providers` is specified, filters to only those that are usable.
  */
 export function resolveConfiguredProviders(
   env: AssetProviderEnvConfig,
   providers?: readonly string[],
 ): string[] {
-  const usable: string[] = ["fixture"];
+  const usable: string[] = [];
   if (env.pexelsApiKey) usable.push("pexels");
   if (env.pixabayApiKey) usable.push("pixabay");
   if (env.unsplashApiKey) usable.push("unsplash");
   usable.push("openverse"); // no key required
 
   if (providers && providers.length > 0) {
-    const usableSet = new Set(usable);
+    const usableSet = new Set([...usable, "fixture"]);
     return providers.filter((p) => usableSet.has(p));
   }
   return usable;
